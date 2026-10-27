@@ -564,11 +564,9 @@ mod tests {
         future.poll(&mut std::task::Context::from_waker(Waker::noop()))
     }
 
-    // The native client's TLS: rustls needs a process-level crypto provider, and on Android
-    // nothing else in the process installs one, so every wss:// handshake failed with
-    // "Could not automatically determine the process-level CryptoProvider". nsh-core alone has
-    // the same dependency set, so this reproduces it on any host. The peer here closes the
-    // connection at once: the handshake must fail as a TLS failure, never for want of a provider.
+    // Android has no other dependency selecting a TLS provider. A peer closing
+    // at once must produce a handshake error, not a missing-provider panic.
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn native_wss_has_a_tls_provider() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
