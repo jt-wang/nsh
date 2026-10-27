@@ -564,6 +564,40 @@ mod tests {
         future.poll(&mut std::task::Context::from_waker(Waker::noop()))
     }
 
+    // The native client's TLS: rustls needs a process-level crypto provider, and on Android
+    // nothing else in the process installs one, so every wss:// handshake failed with
+    // "Could not automatically determine the process-level CryptoProvider". nsh-core alone has
+    // the same dependency set, so this reproduces it on any host. The peer here closes the
+    // connection at once: the handshake must fail as a TLS failure, never for want of a provider.
+    #[tokio::test]
+    async fn native_wss_has_a_tls_provider() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(1) {
+                drop(stream);
+            }
+        });
+        let sys = System {
+            access: Arc::new(Access::all()),
+            ..System::default()
+        };
+        let connect = WebSocket::connect(format!("wss://127.0.0.1:{port}"), None, sys).unwrap();
+        let result = std::panic::AssertUnwindSafe(connect.into_future());
+        let outcome = futures_util::FutureExt::catch_unwind(result).await;
+        let message = match outcome {
+            Ok(Ok(_)) => panic!("a peer that closes at once cannot complete a TLS handshake"),
+            Ok(Err(error)) => error.to_string(),
+            Err(panic) => panic
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+                .unwrap_or_default(),
+        };
+        assert!(!message.contains("CryptoProvider"), "{message}");
+        assert!(message.contains("WebSocket handshake failed"), "{message}");
+    }
+
     #[tokio::test]
     async fn host_connect_waits_for_open_and_releases_its_slot_on_drop() {
         DROPS.with(|drops| drops.set(0));

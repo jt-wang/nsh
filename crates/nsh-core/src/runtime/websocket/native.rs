@@ -222,6 +222,10 @@ async fn open(
     headers: Vec<(HeaderName, HeaderValue)>,
     held: Held,
 ) -> Result<WebSocketConnection, String> {
+    // rustls needs a process-level crypto provider; on Android nothing else installs one (measured 2026-10-27:
+    // every wss:// connect failed with "Could not automatically determine the process-level CryptoProvider").
+    // Idempotent: a second install (a desktop where ureq already chose one) is a no-op.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let mut request = url
         .as_str()
         .into_client_request()
