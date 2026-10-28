@@ -470,6 +470,27 @@ class Box extends ViewGroup implements Node {
         return true;
     }
 
+    private final int[] location = new int[2];
+
+    /**
+     * Whether a scroll view inside {@code v}, under the finger's DOWN at ({@code rawX}, {@code rawY}), can move
+     * for this drag: the drag is its scroll, and the pan takes only what it cannot (a sheet's list scrolls; at its
+     * top, a drag down moves the sheet). iOS shares the touch the same way (`pan_scroll_handoff`).
+     */
+    private boolean scrollTakes(View v, float rawX, float rawY, float dx, float dy) {
+        if (!(v instanceof ViewGroup)) return false;
+        ViewGroup g = (ViewGroup) v;
+        for (int i = g.getChildCount() - 1; i >= 0; i--) {
+            View c = g.getChildAt(i);
+            if (c.getVisibility() != VISIBLE) continue;
+            c.getLocationOnScreen(location);
+            if (rawX < location[0] || rawY < location[1] || rawX >= location[0] + c.getWidth() || rawY >= location[1] + c.getHeight()) continue;
+            if (c instanceof ScrollBox && ((ScrollBox) c).scrolls(dx, dy)) return true;
+            if (scrollTakes(c, rawX, rawY, dx, dy)) return true;
+        }
+        return false;
+    }
+
     @Override
     public boolean onInterceptTouchEvent(MotionEvent e) {
         if (pointerEvents == 3) return true;
@@ -487,7 +508,7 @@ class Box extends ViewGroup implements Node {
         if (pannable() && action == MotionEvent.ACTION_MOVE && !panning) {
             float slop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
             float dx = e.getRawX() - downRawX, dy = e.getRawY() - downRawY;
-            if (panStarts(dx, dy, slop)) {
+            if (panStarts(dx, dy, slop) && !scrollTakes(this, downRawX, downRawY, dx, dy)) {
                 // The DOWN went to the child: the pan starts with this move
                 // (which onTouchEvent never sees), so a quick flick still
                 // pans and ends.
