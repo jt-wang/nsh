@@ -287,6 +287,13 @@ final class ScrollBox extends FrameLayout implements Node {
         return true;
     }
 
+    /** Whether a drag by ({@code dx}, {@code dy}) px along this view's axis has content to move. */
+    boolean scrolls(float dx, float dy) {
+        if (scroller == null || !enabled) return false;
+        if (horizontal) return Math.abs(dx) > Math.abs(dy) && scroller.canScrollHorizontally(dx < 0 ? 1 : -1);
+        return Math.abs(dy) > Math.abs(dx) && scroller.canScrollVertically(dy < 0 ? 1 : -1);
+    }
+
     /** Glides to the snap point for a release at {@code velocity} (px/s). */
     private void snap(int velocity) {
         if (scroller instanceof ZScroll) return;
