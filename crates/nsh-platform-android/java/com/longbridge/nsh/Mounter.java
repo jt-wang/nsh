@@ -1938,12 +1938,12 @@ final class Mounter {
                 if (v instanceof InputBox) {
                     ((InputBox) v).blur();
                 } else if (id == 1) {
+                    // Keyboard.dismiss(): hide the keyboard even when the field that showed it is gone (a page that
+                    // closed with it), which leaves no focused view in the host but the keyboard still up.
                     View f = host.findFocus();
-                    if (f != null && f != host) {
-                        InputMethodManager imm = (InputMethodManager) context.getSystemService(Context.INPUT_METHOD_SERVICE);
-                        imm.hideSoftInputFromWindow(f.getWindowToken(), 0);
-                        host.requestFocus();
-                    }
+                    InputMethodManager imm = (InputMethodManager) context.getSystemService(Context.INPUT_METHOD_SERVICE);
+                    imm.hideSoftInputFromWindow(f != null ? f.getWindowToken() : host.getWindowToken(), 0);
+                    if (f != null && f != host) host.requestFocus();
                 }
                 break;
             case 2: {
