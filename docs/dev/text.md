@@ -15,7 +15,8 @@
   (each line's characters spread evenly over its width). The headless engine hit-tests whole characters, 0.55 em
   each, on its one line. CoreText retains original offsets for the visible suffix of head / middle
   truncations and omits the ellipsis from range boxes; mixed-direction ranges split by visual run on both Apple
-  backends. Web hit testing measures cluster rectangles in the complete drawn DOM run on first use, keeps both
+  backends. There a clamped last line in `ellipsis` or `clip` ends at its paragraph's hard break (a CTLine draws a break
+  as nothing, so the hidden lines would join it), and `ellipsis` puts the ellipsis right after it. Web hit testing measures cluster rectangles in the complete drawn DOM run on first use, keeps both
   edges at bidi boundaries and caches them with the layout. Linux selection drawing reuses its rectangle buffer.
   Test-id-only span updates remount the text metadata with its cached final layout (`LaidText`), retaining fitted
   font sizes. They preserve prepared state and measurement caches and raise no `onTextLayout`.

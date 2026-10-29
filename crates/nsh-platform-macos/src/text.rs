@@ -72,6 +72,35 @@ fn ellipsis_key() -> &'static CFString {
         .0
 }
 
+/// Inserts an ellipsis at `at` in `string`, with `attributes` (the shown
+/// text's) and marked as the token (`ellipsis_key`).
+fn mark_token(string: &CFMutableAttributedString, at: CFIndex, attributes: Option<&CFDictionary>) {
+    let range = CFRange {
+        location: at,
+        length: 1,
+    };
+    // SAFETY: the ranges lie within the string; valid keys and values.
+    unsafe {
+        CFMutableAttributedString::replace_string(
+            Some(string),
+            CFRange {
+                location: at,
+                length: 0,
+            },
+            Some(&CFString::from_static_str("\u{2026}")),
+        );
+        if let Some(attributes) = attributes {
+            CFMutableAttributedString::set_attributes(Some(string), range, Some(attributes), true);
+        }
+        CFMutableAttributedString::set_attribute(
+            Some(string),
+            range,
+            Some(ellipsis_key()),
+            Some(CFNumber::new_i32(1).as_ref()),
+        );
+    }
+}
+
 struct CFStringKey(CFRetained<CFString>);
 // SAFETY: CFStrings are immutable and thread-safe.
 unsafe impl Send for CFStringKey {}
@@ -679,68 +708,94 @@ impl Prepared {
         end
     }
 
+    /// Where the paragraph holding `start` ends: at its hard break, or the
+    /// end of the text.
+    fn paragraph_end(&self, start: CFIndex) -> CFIndex {
+        let source: &CFAttributedString = &self.string;
+        let Some(chars) = source.string() else {
+            return self.length;
+        };
+        (start..self.length)
+            .find(|&i| {
+                // SAFETY: an index within the string.
+                let c = unsafe { chars.character_at_index(i) };
+                matches!(c, 0x0a | 0x0d | 0x85 | 0x2028 | 0x2029)
+            })
+            .unwrap_or(self.length)
+    }
+
     /// `line` (starting at `start`) cut to `width` with an ellipsis, as
     /// `textOverflow` says, standing for the rest of the text.
     fn truncate(&self, start: CFIndex, width: f64) -> Option<CFRetained<CTLine>> {
+        // Where the line's paragraph ends: a CTLine draws a hard break as
+        // nothing, so the hidden lines after it would run onto the line.
+        // Tail and Clip end the line there.
+        let end = self.paragraph_end(start);
         let kind = match self.ellipsize {
             EllipsizeMode::Tail => CTLineTruncationType::End,
             EllipsizeMode::Head => CTLineTruncationType::Start,
             EllipsizeMode::Middle => CTLineTruncationType::Middle,
-            // The rest of the text on one line, cut where the box ends
+            // The rest of the paragraph on one line, cut where the box ends
             // (not at the last word that fits).
             EllipsizeMode::Clip => {
                 // SAFETY: the range lies within the string.
                 return Some(unsafe {
                     self.typesetter().line(CFRange {
                         location: start,
-                        length: self.length - start,
+                        length: end - start,
                     })
                 });
             }
         };
-        // The token copies the attributes of the last character that is
-        // not an attachment (a placeholder's would make it invisible).
-        let mut last = (self.length - 1).max(start);
+        // Head and Middle show the end of the text: the rest of it.
+        let shown = if kind == CTLineTruncationType::End {
+            end
+        } else {
+            self.length
+        };
+        // The token copies the attributes of the last character shown that
+        // is not an attachment (a placeholder's would make it invisible).
+        let mut last = (shown - 1).max(start);
         while last > start && self.attachments.iter().any(|&(at, _)| at == last) {
             last -= 1;
         }
-        // SAFETY: ranges lie within the string.
+        let source: &CFAttributedString = &self.string;
+        // SAFETY: an index within the string.
+        let attributes =
+            unsafe { CFAttributedString::attributes(source, last, std::ptr::null_mut()) };
+        let token_string =
+            CFMutableAttributedString::new(None, 0).expect("CFAttributedStringCreateMutable");
+        mark_token(&token_string, 0, attributes.as_deref());
+        // SAFETY: a valid attributed string.
+        let token = unsafe { CTLine::with_attributed_string(&token_string) };
+        // SAFETY: ranges lie within the strings.
         unsafe {
-            let rest = self.typesetter().line(CFRange {
-                location: start,
-                length: self.length - start,
-            });
-            let token_string =
-                CFMutableAttributedString::new(None, 0).expect("CFAttributedStringCreateMutable");
-            CFMutableAttributedString::replace_string(
-                Some(&token_string),
-                WHOLE,
-                Some(&CFString::from_static_str("\u{2026}")),
-            );
-            let source: &CFAttributedString = &self.string;
-            let attributes = CFAttributedString::attributes(source, last, std::ptr::null_mut());
-            if let Some(attributes) = attributes {
-                CFMutableAttributedString::set_attributes(
-                    Some(&token_string),
-                    CFRange {
-                        location: 0,
-                        length: 1,
-                    },
-                    Some(&attributes),
-                    false,
-                );
+            if shown == self.length {
+                let rest = self.typesetter().line(CFRange {
+                    location: start,
+                    length: self.length - start,
+                });
+                return rest.truncated_line(width, kind, Some(&token));
             }
-            // Marks the token's run (see `ellipsis_key`).
-            CFMutableAttributedString::set_attribute(
-                Some(&token_string),
+            // Text is left after the paragraph: the line always ends with
+            // the ellipsis. A copy of the string whose text after the break
+            // is the token keeps every offset before it.
+            let copy = CFMutableAttributedString::new_copy(None, 0, Some(source))
+                .expect("CFAttributedStringCreateMutableCopy");
+            mark_token(&copy, end, attributes.as_deref());
+            CFMutableAttributedString::replace_string(
+                Some(&copy),
                 CFRange {
-                    location: 0,
-                    length: 1,
+                    location: end + 1,
+                    length: self.length - end,
                 },
-                Some(ellipsis_key()),
-                Some(CFNumber::new_i32(1).as_ref()),
+                Some(&CFString::from_static_str("")),
             );
-            let token = CTLine::with_attributed_string(&token_string);
+            let copied: &CFAttributedString = &copy;
+            let rest = CTTypesetter::with_attributed_string(copied).line(CFRange {
+                location: start,
+                length: end + 1 - start,
+            });
             rest.truncated_line(width, kind, Some(&token))
         }
     }
@@ -2354,7 +2409,10 @@ mod hit_regressions {
             line_height: Points(32.0),
             ..Default::default()
         };
-        text.push("one two three four five six seven eight nine ten", text_style);
+        text.push(
+            "one two three four five six seven eight nine ten",
+            text_style,
+        );
         let prepared = engine.prepare(&text);
         let size = engine.measure(&prepared, Some(Points(80.0)));
         let layout = engine.layout(&prepared, size);
@@ -2390,13 +2448,83 @@ mod hit_regressions {
             line_height: Points(17.0 * 1.7),
             ..Default::default()
         };
-        text.push("\u{8bbe}\u{8ba1}\u{ff09}\u{ff0c}\u{6539}\u{540d}/\u{88c1}\u{526a}\u{5fc5}\u{987b}", style);
+        text.push(
+            "\u{8bbe}\u{8ba1}\u{ff09}\u{ff0c}\u{6539}\u{540d}/\u{88c1}\u{526a}\u{5fc5}\u{987b}",
+            style,
+        );
         let prepared = engine.prepare(&text);
         let size = engine.measure(&prepared, None);
         let layout = engine.layout(&prepared, size);
         let mut rects = Vec::new();
         engine.range_rects(&layout, 0..11, &mut rects);
         assert_eq!(rects.len(), 1, "{rects:?}");
+    }
+
+    /// `text` clamped to `lines` lines in a `width` wide box, and the runs of
+    /// its last line: string range, whether it is the ellipsis token.
+    fn clamped_last_runs(
+        text: &str,
+        lines: u32,
+        mode: EllipsizeMode,
+        width: f32,
+    ) -> Vec<(CFRange, bool)> {
+        let engine = CoreTextEngine::default();
+        let mut text_value = AttributedText::default();
+        text_value.push(
+            text,
+            ResolvedTextStyle {
+                font_size: Points(20.0),
+                ..Default::default()
+            },
+        );
+        text_value.max_lines = lines;
+        text_value.ellipsize = mode;
+        let prepared = engine.prepare(&text_value);
+        let size = engine.measure(&prepared, Some(Points(width)));
+        let laid = engine.layout(&prepared, Size::new(Points(width), size.height));
+        let layout = laid.downcast::<CoreTextLayout>().unwrap();
+        assert_eq!(layout.lines.len(), lines as usize, "{text:?}");
+        let last = layout.lines.last().unwrap();
+        // SAFETY: the line's own run array (of CTRuns); valid runs.
+        unsafe {
+            let runs = last.line.glyph_runs();
+            (0..runs.count())
+                .map(|i| {
+                    let run = &*runs.value_at_index(i).cast::<CTRun>();
+                    let key: *const CFString = ellipsis_key();
+                    (
+                        run.string_range(),
+                        run.attributes().contains_ptr_key(key.cast()),
+                    )
+                })
+                .collect()
+        }
+    }
+    #[test]
+    fn clamped_last_line_ends_at_its_hard_break() {
+        // The third line starts at offset 4; its paragraph's break is at
+        // `break_at`. The lines after it are hidden, whether the rest fits
+        // the box or not, and a long paragraph is cut where the box ends.
+        for (text, width, break_at) in [
+            ("a\nb\nc\nd\ne", 300.0, 5),
+            ("a\nb\nc\ndddddddddddddddddddd\ne", 120.0, 5),
+            ("a\nb\ncccccccccccccccccccccccc\nd\ne", 120.0, 28),
+        ] {
+            for mode in [EllipsizeMode::Tail, EllipsizeMode::Clip] {
+                let runs = clamped_last_runs(text, 3, mode, width);
+                for &(range, token) in &runs {
+                    assert!(
+                        token || range.location + range.length <= break_at,
+                        "{mode:?} {text:?}: a hidden line drawn on the last one: {runs:?}"
+                    );
+                }
+                assert_eq!(
+                    runs.iter().any(|&(_, token)| token),
+                    mode == EllipsizeMode::Tail,
+                    "{mode:?} {text:?}: an ellipsis stands for the hidden lines: {runs:?}"
+                );
+            }
+        }
     }
 
     #[test]
