@@ -94,7 +94,7 @@ define_class!(
             if self.bottom_bar_hidden() != self.ivars().applied.get() {
                 self.apply_bottom_hidden();
             }
-            if width < 1.0 || width == self.ivars().width.get() {
+            if !lays_out_items(self.ivars().width.get(), self.bounds().size) {
                 return;
             }
             self.ivars().width.set(width);
@@ -209,6 +209,12 @@ fn parse_items(items: &[JsonValue]) -> Vec<Tab> {
             icon: text(item, "icon"),
         })
         .collect()
+}
+
+/// Whether a bar of `size` sets its items again, its items last laid out at
+/// `laid_width`: once it has a width they were not laid out at.
+fn lays_out_items(laid_width: f64, size: CGSize) -> bool {
+    size.width >= 1.0 && size.width != laid_width
 }
 
 /// Shows `items` on `bar`, with `selected` chosen.
@@ -353,9 +359,10 @@ pub(crate) fn factory() -> ComponentFactory {
 
 #[cfg(test)]
 mod tests {
+    use objc2_core_foundation::CGSize;
     use serde_json::json;
 
-    use super::{Tab, parse_items};
+    use super::{Tab, lays_out_items, parse_items};
 
     /// Each tab carries its own title and icon; a tab without an icon has
     /// none.
@@ -377,6 +384,35 @@ mod tests {
                     icon: String::new(),
                 },
             ]
+        );
+    }
+
+    /// A bar mounted after the first layout gets its width before its height,
+    /// which follows its own measurement a batch later. Items laid out while
+    /// it is 0 points tall keep labels 0 points tall, and its height alone
+    /// would not lay them out again: they wait for it. A new width still lays
+    /// them out again.
+    #[test]
+    fn items_wait_for_the_bar_to_have_a_height() {
+        let mut laid_width = 0.0;
+        let mut laid_at = Vec::new();
+        for (width, height) in [
+            (0.0, 0.0),
+            (440.0, 0.0),
+            (440.0, 0.0),
+            (440.0, 83.0),
+            (440.0, 83.0),
+            (390.0, 83.0),
+        ] {
+            let size = CGSize::new(width, height);
+            if lays_out_items(laid_width, size) {
+                laid_width = width;
+                laid_at.push(size);
+            }
+        }
+        assert_eq!(
+            laid_at,
+            [CGSize::new(440.0, 83.0), CGSize::new(390.0, 83.0)]
         );
     }
 }
