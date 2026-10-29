@@ -1,7 +1,8 @@
 import { mount, platform, Scroll, signal, Text, View } from "nsh";
 import { Sheet } from "nsh/base";
 
-// A swipe-to-close sheet holding a list taller than the sheet.
+// A swipe-to-close sheet holding a list taller than the sheet, and a button
+// placed over the list.
 function App() {
   const open = signal(true);
   const offset = signal(0);
@@ -19,6 +20,12 @@ function App() {
               </View>
             ))}
           </Scroll>
+          <View
+            onPress={() => {}}
+            style={{ position: "absolute", left: 16, right: 16, bottom: 16, height: 48, justifyContent: "center", alignItems: "center", backgroundColor: "#dddddd" }}
+          >
+            <Text>Button over the list</Text>
+          </View>
         </View>
       </Sheet>
     </View>

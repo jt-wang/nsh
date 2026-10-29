@@ -470,23 +470,24 @@ class Box extends ViewGroup implements Node {
         return true;
     }
 
-    private final int[] location = new int[2];
-
     /**
-     * Whether a scroll view inside {@code v}, under the finger's DOWN at ({@code rawX}, {@code rawY}), can move
-     * for this drag: the drag is its scroll, and the pan takes only what it cannot (a sheet's list scrolls; at its
-     * top, a drag down moves the sheet). iOS shares the touch the same way (`pan_scroll_handoff`).
+     * Whether a scroll view inside {@code v} that took this touch's DOWN (at {@code downTime}) can move for this
+     * drag: the drag is its scroll, and the pan takes only what it cannot (a sheet's list scrolls; at its top, a drag
+     * down moves the sheet). A scroll view under a button that took the touch does not count. iOS shares the touch
+     * the same way, with the scroll views between the touched view and the pan (`pan_touch`, `pan_scroll_handoff`).
      */
-    private boolean scrollTakes(View v, float rawX, float rawY, float dx, float dy) {
+    private static boolean scrollTakes(View v, long downTime, float dx, float dy) {
         if (!(v instanceof ViewGroup)) return false;
         ViewGroup g = (ViewGroup) v;
         for (int i = g.getChildCount() - 1; i >= 0; i--) {
             View c = g.getChildAt(i);
             if (c.getVisibility() != VISIBLE) continue;
-            c.getLocationOnScreen(location);
-            if (rawX < location[0] || rawY < location[1] || rawX >= location[0] + c.getWidth() || rawY >= location[1] + c.getHeight()) continue;
-            if (c instanceof ScrollBox && ((ScrollBox) c).scrolls(dx, dy)) return true;
-            if (scrollTakes(c, rawX, rawY, dx, dy)) return true;
+            if (c instanceof ScrollBox) {
+                // A scroll view the touch did not go to: nor did it go to anything inside.
+                if (!((ScrollBox) c).took(downTime)) continue;
+                if (((ScrollBox) c).scrolls(dx, dy)) return true;
+            }
+            if (scrollTakes(c, downTime, dx, dy)) return true;
         }
         return false;
     }
@@ -508,7 +509,7 @@ class Box extends ViewGroup implements Node {
         if (pannable() && action == MotionEvent.ACTION_MOVE && !panning) {
             float slop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
             float dx = e.getRawX() - downRawX, dy = e.getRawY() - downRawY;
-            if (panStarts(dx, dy, slop) && !scrollTakes(this, downRawX, downRawY, dx, dy)) {
+            if (panStarts(dx, dy, slop) && !scrollTakes(this, e.getDownTime(), dx, dy)) {
                 // The DOWN went to the child: the pan starts with this move
                 // (which onTouchEvent never sees), so a quick flick still
                 // pans and ends.
