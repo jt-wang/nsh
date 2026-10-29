@@ -25,7 +25,10 @@ struct BarIvars {
     selected: Cell<usize>,
     /// The width the items were last laid out at: an element is made before
     /// the layout that sizes it, so the first `setItems:` lands at width 0
-    /// and draws nothing until the bar is laid out again.
+    /// and draws nothing until the bar is laid out again. A bar mounted after
+    /// the first layout gets its width before its height (its own
+    /// measurement, a batch later): items laid out at height 0 keep labels 0
+    /// points tall, so they wait for both.
     width: Cell<f64>,
     height: Cell<f64>,
     visibility: crate::bottom_bar::Visibility,
@@ -98,8 +101,8 @@ define_class!(
                 return;
             }
             self.ivars().width.set(width);
-            // Items laid out while the bar had no width keep no labels: give
-            // them up and set them again for the width it has now.
+            // Items laid out while the bar had no width or no height keep no
+            // labels: give them up and set them again for the size it has now.
             self.setItems(None);
             // After the layout pass: items set inside it are not laid out.
             // SAFETY: this zero-argument selector is defined on this class above.
@@ -212,9 +215,9 @@ fn parse_items(items: &[JsonValue]) -> Vec<Tab> {
 }
 
 /// Whether a bar of `size` sets its items again, its items last laid out at
-/// `laid_width`: once it has a width they were not laid out at.
+/// `laid_width`: once it has a height, and a width they were not laid out at.
 fn lays_out_items(laid_width: f64, size: CGSize) -> bool {
-    size.width >= 1.0 && size.width != laid_width
+    size.width >= 1.0 && size.height >= 1.0 && size.width != laid_width
 }
 
 /// Shows `items` on `bar`, with `selected` chosen.
