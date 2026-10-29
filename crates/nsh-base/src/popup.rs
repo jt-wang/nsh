@@ -339,9 +339,13 @@ impl PopupPresence {
     }
 }
 
-/// How long a sheet takes to come in and to go, in milliseconds.
-const SHEET_IN_MS: f32 = 280.0;
+/// How long a sheet takes to come in and to go, in milliseconds, and its
+/// curves: Material 3's emphasized decelerate for what enters and emphasized
+/// accelerate for what leaves (the platform sheets' own motion).
+const SHEET_IN_MS: f32 = 300.0;
 const SHEET_OUT_MS: f32 = 200.0;
+const SHEET_IN_EASING: Easing = Easing::Bezier(0.05, 0.7, 0.1, 1.0);
+const SHEET_OUT_EASING: Easing = Easing::Bezier(0.3, 0.0, 0.8, 0.15);
 
 /// How a sheet comes and goes (`Sheet`, and menus presented as sheets): its
 /// backdrop fades while its panel slides in from its edge, and out again
@@ -458,8 +462,8 @@ impl SheetMotion {
             // Going before it stops being settled: it is there until gone.
             self.closing.replace(true);
             self.settled.set(false);
-            self.drag_y.timing(0.0, SHEET_OUT_MS, Easing::EaseIn);
-            let end = self.fade.timing(0.0, SHEET_OUT_MS, Easing::EaseIn);
+            self.drag_y.timing(0.0, SHEET_OUT_MS, SHEET_OUT_EASING);
+            let end = self.fade.timing(0.0, SHEET_OUT_MS, SHEET_OUT_EASING);
             let (shown, closing) = (self.shown, self.closing);
             // Gone when the motion ends: the platform runs it and reports
             // its end, whatever clock the app's timers follow (a test's
@@ -522,8 +526,8 @@ impl SheetMotion {
             self.settled.set(true);
             return;
         }
-        self.drag_y.timing(0.0, SHEET_IN_MS, Easing::EaseOut);
-        let end = self.fade.timing(1.0, SHEET_IN_MS, Easing::EaseOut);
+        self.drag_y.timing(0.0, SHEET_IN_MS, SHEET_IN_EASING);
+        let end = self.fade.timing(1.0, SHEET_IN_MS, SHEET_IN_EASING);
         let (settled, closing) = (self.settled, self.closing);
         // There when the motion ends, or after its time (as it goes).
         spawn(async move {
