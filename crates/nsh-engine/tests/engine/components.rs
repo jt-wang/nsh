@@ -5367,6 +5367,36 @@ fn the_tab_bar_takes_its_tint_from_its_style() {
     }
 }
 
+/// `tint-transparent` reaches the bar as a transparent color, which the
+/// platforms tell apart from no tint (the system's colors).
+#[test]
+fn a_transparent_tint_reaches_the_tab_bar_as_a_color() {
+    use nsh_core::platform::Os;
+
+    let app = TAB_BAR.replace(
+        "selectedIndex={selected()}",
+        "selectedIndex={selected()}\n      class=\"tint-transparent\"",
+    );
+    let (_engine, rx) = start_in(
+        &app,
+        Environment {
+            os: Os::Android,
+            ..Environment::default()
+        },
+    );
+    let batches = until(&rx, |batch| batch.items.iter().any(is_tab_bar));
+    let tint = batches
+        .iter()
+        .flat_map(|batch| &batch.items)
+        .find_map(|item| match item {
+            MountItem::ViewStyle { style, .. } if style.tint_color.is_some() => {
+                Some(style.tint_color)
+            }
+            _ => None,
+        });
+    assert_eq!(tint, Some(Some(nsh_core::Color(0))));
+}
+
 /// Where the system has no tab bar it renders nothing: no component at all;
 /// `isAvailable` tells which platforms `nsh/mobile` serves.
 #[test]

@@ -11,8 +11,8 @@ final class ComponentBox extends Box {
     String[] slots;
     /** Slot -> the bits of the value last handed to the component. */
     private final android.util.SparseIntArray handed = new android.util.SparseIntArray();
-    /** The style's {@code tintColor} (0: none), kept for a component made after it. */
-    private int tint;
+    /** The style's {@code tintColor} (null: none), kept for a component made after it. */
+    private Integer tint;
 
     ComponentBox(Context context, Mounter mounter, int id) {
         super(context, mounter, id);
@@ -23,11 +23,11 @@ final class ComponentBox extends Box {
         handed.clear();
         // Its own child, at the box's size (the core places no children here).
         addView(component.view());
-        if (tint != 0) setTint(tint);
+        if (tint != null) setTint(tint);
     }
 
-    /** The style's {@code tintColor} (0: none): the system tab bar shows its selected tab in it. */
-    void setTint(int color) {
+    /** The style's {@code tintColor} (null: none): the system tab bar shows its selected tab in it. */
+    void setTint(Integer color) {
         tint = color;
         if (component instanceof TabBarComponent) ((TabBarComponent) component).setTint(color);
     }
