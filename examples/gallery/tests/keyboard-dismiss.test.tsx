@@ -7,5 +7,5 @@ test("Keyboard.dismiss() hides the keyboard of a field that is gone", async () =
   await app.type("id:name", "test1");
   await app.press("Next");
   await app.waitFor("Next screen");
-  await app.waitFor("keyboard: down");
+  await app.waitFor("text:keyboard: down");
 });
