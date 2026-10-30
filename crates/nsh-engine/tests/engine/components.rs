@@ -5329,6 +5329,44 @@ fn the_tab_bar_is_the_systems_component_on_ios_and_android() {
     }
 }
 
+/// `tintColor` (`tint-*`) reaches the bar's view on iOS and Android, where
+/// the platforms color the selected tab with it.
+#[test]
+fn the_tab_bar_takes_its_tint_from_its_style() {
+    use nsh_core::platform::Os;
+
+    let app = TAB_BAR.replace(
+        "selectedIndex={selected()}",
+        "selectedIndex={selected()}\n      class=\"tint-[#ff2d55]\"",
+    );
+    for os in [Os::Ios, Os::Android] {
+        let (_engine, rx) = start_in(
+            &app,
+            Environment {
+                os,
+                ..Environment::default()
+            },
+        );
+        let batches = until(&rx, |batch| batch.items.iter().any(is_tab_bar));
+        let bar = batches
+            .iter()
+            .flat_map(|batch| &batch.items)
+            .find_map(|item| match item {
+                MountItem::Component { id, .. } if is_tab_bar(item) => Some(*id),
+                _ => None,
+            })
+            .expect("the system bar");
+        let tint = batches
+            .iter()
+            .flat_map(|batch| &batch.items)
+            .find_map(|item| match item {
+                MountItem::ViewStyle { id, style } if *id == bar => Some(style.tint_color),
+                _ => None,
+            });
+        assert_eq!(tint, Some(Some(nsh_core::Color(0xff2d55ff))), "{os:?}");
+    }
+}
+
 /// Where the system has no tab bar it renders nothing: no component at all;
 /// `isAvailable` tells which platforms `nsh/mobile` serves.
 #[test]
