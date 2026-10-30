@@ -1608,6 +1608,7 @@ impl Mounter {
             }
             (Command::ClearJsResponder, _) => self.clear_js_responder(),
             (Command::Announce(text), _) => crate::system::announce(&text),
+            (Command::Tokens(tokens), _) => crate::system::set_tokens(&tokens),
             (Command::ImageInfo { id, uri }, _) => self.images.info(id, &uri),
             (Command::SetClipboard(text), _) => crate::system::set_clipboard(&text),
             (Command::OpenUrl { id, url }, _) => crate::system::open_url(id, &url, &self.control),

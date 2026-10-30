@@ -33,6 +33,17 @@ thread_local! {
     /// The appearance the app asked for last (`setColorScheme`), for what
     /// is not a subview of a surface: the status bar, alerts, modals.
     static APPEARANCE: Cell<UIUserInterfaceStyle> = const { Cell::new(UIUserInterfaceStyle::Unspecified) };
+    /// The tint of alerts and action sheets: the app theme's `primary`
+    /// (`None`: the system's, for an app without a theme of its own).
+    static ALERT_TINT: Cell<Option<nsh_core::element::AdaptiveColor>> = const { Cell::new(None) };
+}
+
+/// The app's design tokens ([`nsh_core::Command::Tokens`]): alerts and
+/// action sheets take their tint from `primary` when the app has a theme
+/// of its own (tokens other than the default theme's).
+pub(crate) fn set_tokens(tokens: &nsh_core::element::Tokens) {
+    let themed = nsh_base::tokens_of(None).is_ok_and(|d| *tokens != d);
+    ALERT_TINT.set(tokens.color("primary").filter(|_| themed));
 }
 
 /// The appearance the app asked for (`Unspecified`: the system's).
@@ -176,6 +187,22 @@ pub(crate) fn show_dialog(dialog: &Dialog, view: &UIView, control: &EngineContro
         mtm,
     );
     alert.setOverrideUserInterfaceStyle(appearance());
+    if let (Some(tint), Some(shown)) = (ALERT_TINT.get(), alert.view()) {
+        // UIKit draws the regular and cancel actions in the tint and
+        // destructive ones red (iOS 17); iOS 26's alerts keep their own
+        // colors.
+        let dark = match appearance() {
+            UIUserInterfaceStyle::Unspecified => {
+                let traits = objc2_ui_kit::UITraitEnvironment::traitCollection(view);
+                (unsafe { traits.userInterfaceStyle() }) == UIUserInterfaceStyle::Dark
+            }
+            style => style == UIUserInterfaceStyle::Dark,
+        };
+        let (r, g, b, a) =
+            nsh_core::Color::from(if dark { tint.dark } else { tint.light }).to_f64();
+        let color = objc2_ui_kit::UIColor::colorWithRed_green_blue_alpha(r, g, b, a);
+        unsafe { shown.setTintColor(Some(&color)) };
+    }
     for (index, button) in dialog.buttons.iter().enumerate() {
         let style = match button.style {
             DialogButtonStyle::Default => UIAlertActionStyle::Default,
