@@ -1017,6 +1017,7 @@ final class Mounter {
             decor.clip(v, overflow);
         }
         if (v instanceof ImageBox) ((ImageBox) v).setTint(hasTint ? tint : 0);
+        else if (v instanceof ComponentBox) ((ComponentBox) v).setTint(hasTint ? tint : 0);
         applyDynamic(v, d);
         if (from != null) transition(v, id, decor, from, d, fx);
         if (keyframesChanged) keyframes(v, id, fx);

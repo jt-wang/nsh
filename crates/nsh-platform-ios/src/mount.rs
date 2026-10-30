@@ -2129,12 +2129,16 @@ impl Mounter {
         let keyframes_changed = s.style.animation != style.animation;
         let blend_changed = s.style.blend_mode != style.blend_mode;
         let cursor_changed = s.style.cursor != style.cursor;
+        let tint_changed = s.style.tint_color != style.tint_color;
         // Transitions apply to changes of a view already on screen.
         let transition = style
             .transition
             .filter(|t| t.duration > 0.0 && view.window().is_some());
         s.style = style;
         view.setHidden(s.style.hidden);
+        if tint_changed && let Native::Component(host) = &s.native {
+            host.set_tint_color(s.style.tint_color);
+        }
         match transition {
             Some(t) => {
                 // Sublayers animate implicitly in the transaction; the

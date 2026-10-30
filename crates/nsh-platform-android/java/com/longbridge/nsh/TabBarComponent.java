@@ -47,6 +47,8 @@ final class TabBarComponent implements NshComponent {
     private final Bar bar;
     private final List<Item> items = new ArrayList<>();
     private int selected;
+    /** The style's {@code tintColor} (0: none): the selected tab's icon, label and indicator. */
+    private int tint;
     /** The bottom inset the bar reaches under, in px. */
     private int inset;
 
@@ -81,6 +83,13 @@ final class TabBarComponent implements NshComponent {
             default:
                 break;
         }
+    }
+
+    /** The style's {@code tintColor} (0: none, the system's colors). */
+    void setTint(int color) {
+        if (color == tint) return;
+        tint = color;
+        paint();
     }
 
     private void setItems(List<?> tabs) {
@@ -251,12 +260,16 @@ final class TabBarComponent implements NshComponent {
 
         void paint(boolean dark) {
             boolean on = isSelected();
-            pill.setColor(color(dark ? 0xff4a4458 : 0xffe8def8, dark ? android.R.color.system_accent2_700 : android.R.color.system_accent2_100));
+            // The app's tint: the selected icon and label in it, over an
+            // indicator of it at Material's state-layer opacity (12%).
+            pill.setColor(tint != 0
+                    ? (tint & 0x00ffffff) | 0x1f000000
+                    : color(dark ? 0xff4a4458 : 0xffe8def8, dark ? android.R.color.system_accent2_700 : android.R.color.system_accent2_100));
             int iconColor = on
-                    ? color(dark ? 0xffe8def8 : 0xff1d192b, dark ? android.R.color.system_accent2_100 : android.R.color.system_accent2_900)
+                    ? (tint != 0 ? tint : color(dark ? 0xffe8def8 : 0xff1d192b, dark ? android.R.color.system_accent2_100 : android.R.color.system_accent2_900))
                     : color(dark ? 0xffcac4d0 : 0xff49454f, dark ? android.R.color.system_neutral2_200 : android.R.color.system_neutral2_700);
             int labelColor = on
-                    ? color(dark ? 0xffe6e0e9 : 0xff1d1b20, dark ? android.R.color.system_neutral1_100 : android.R.color.system_neutral1_900)
+                    ? (tint != 0 ? tint : color(dark ? 0xffe6e0e9 : 0xff1d1b20, dark ? android.R.color.system_neutral1_100 : android.R.color.system_neutral1_900))
                     : iconColor;
             icon.setImageTintList(ColorStateList.valueOf(iconColor));
             label.setTextColor(labelColor);

@@ -518,7 +518,7 @@ All keys of `ViewStyle`, plus:
 
 | Key | Type | Rust | Description |
 |---|---|---|---|
-| `tintColor` | `ColorValue` | `.tint_color(c)` of an image | Recolors a template image (every opaque pixel takes this color), for monochrome icons. |
+| `tintColor` | `ColorValue` | `.tint_color(c)` of an image | Recolors a template image (every opaque pixel takes this color), for monochrome icons. On `nsh/mobile`'s [`TabBar`](./nsh-mobile.md#tabbar), the selected tab's color. |
 | `objectFit` | `"fill" \| "contain" \| "cover" \| "none" \| "scale-down"` | `.object_fit(ResizeMode::Contain)` | CSS's `object-fit`: how an image or a video fits its box. `"cover"` fills it and crops, `"contain"` fits inside it, `"fill"` stretches, `"none"` keeps the natural size, `"scale-down"` is `"none"` or `"contain"`, whichever is smaller. Images cover their box by default, videos are contained in it. |
 | `objectPosition` | `string` | `.object_position(p)`, `.object_top()`, ... of an image | Where the image sits in its box once `objectFit` has sized it, as CSS's `object-position`: keywords, percentages and lengths (`"top"`, `"left bottom"`, `"25% 75%"`, `"right 10px bottom 20%"`). A covering image is cropped around it. Default the center. |
 

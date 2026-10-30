@@ -434,7 +434,7 @@ These keys and classes carry what native platforms do beyond CSS:
 |---|---|---|
 | `placeholderColor` | `placeholder:text-*` | An `<Input>`'s placeholder color |
 | `selectionColor` | `selection:bg-*` | The selection highlight of an `<Input>` or a selectable `<Text>` |
-| `tintColor` | `tint-*` | Recolors an `<Image>`'s opaque pixels (template images, icons) |
+| `tintColor` | `tint-*` | Recolors an `<Image>`'s opaque pixels (template images, icons); the selected tab of `nsh/mobile`'s `TabBar` |
 | `borderCurve` | | `"continuous"`: corners that ease into the edges, as the system's own (Apple's continuous corners) |
 | `glassEffect` | | Apple's Liquid Glass behind the view on iOS 26 and macOS 26, the `backdropFilter` elsewhere |
 | `writingDirection` | | A text's base direction, `"auto"` (the default: from its content, as the platforms' text views do), `"ltr"` or `"rtl"`; `direction` sets the layout's |

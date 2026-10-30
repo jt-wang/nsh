@@ -14,11 +14,11 @@
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use nsh_core::{
-    EventKind, EventPayload, JsonValue, NodeId, Points, Size,
+    Color, EventKind, EventPayload, JsonValue, NodeId, Points, Size,
     platform::{TAB_BAR_COMPONENT, is_reserved_component},
 };
 use nsh_engine::EngineControl;
-use objc2_ui_kit::UIView;
+use objc2_ui_kit::{UIColor, UIView};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 /// A native component made by a registered factory.
@@ -229,6 +229,19 @@ impl ComponentHost {
     /// handed over again.
     pub(crate) fn forget(&mut self) {
         self.handed.clear();
+    }
+
+    /// The style's `tintColor` (`None`: the system's), as UIKit's
+    /// `tintColor` of the container: the component's views inherit it, as
+    /// UIKit views inherit their superview's, so the system tab bar shows
+    /// its selected tab in it.
+    pub(crate) fn set_tint_color(&self, tint: Option<Color>) {
+        let tint = tint.map(|c| {
+            let (r, g, b, a) = c.to_f64();
+            UIColor::colorWithRed_green_blue_alpha(r, g, b, a)
+        });
+        // SAFETY: a plain setter; `None` restores the inherited tint.
+        unsafe { self.container.setTintColor(tint.as_deref()) };
     }
 
     /// Puts `component` in the container, filling it.

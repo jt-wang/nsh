@@ -74,7 +74,9 @@ pub enum TabBarEvent {
 /// gives the tabs (`items`), says which is selected (`selectedIndex`), hears
 /// the user's choice (`onChange`), places the bar with its `class` and
 /// `style` and shows the selected tab's content; the bar's height is the
-/// system's where the style leaves it open. The desktops and the web have no
+/// system's where the style leaves it open, and its `tintColor` (`tint-*`,
+/// [`Styled::tint_color`]) is the selected tab's color (the other tabs keep
+/// the system's). The desktops and the web have no
 /// system tab bar: there it takes no room and shows nothing, and the app
 /// shows its tabs with `nsh/base`'s `Tabs`.
 #[component]

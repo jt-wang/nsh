@@ -516,7 +516,7 @@ text("Title").text_shadow([TextShadow {
 
 | 键 | 类型 | Rust | 说明 |
 |---|---|---|---|
-| `tintColor` | `ColorValue` | 图片的 `.tint_color(c)` | 为模板图片重新着色（所有不透明像素都变成这个颜色），用于单色图标。 |
+| `tintColor` | `ColorValue` | 图片的 `.tint_color(c)` | 为模板图片重新着色（所有不透明像素都变成这个颜色），用于单色图标。在 `nsh/mobile` 的 [`TabBar`](./nsh-mobile.md#tabbar) 上是选中标签的颜色。 |
 | `objectFit` | `"fill" \| "contain" \| "cover" \| "none" \| "scale-down"` | `.object_fit(ResizeMode::Contain)` | CSS 的 `object-fit`：图片或视频如何适配其盒子。`"cover"` 填满并裁剪，`"contain"` 完整放入其中，`"fill"` 拉伸，`"none"` 保持原始尺寸，`"scale-down"` 取 `"none"` 和 `"contain"` 中较小的一个。图片默认覆盖盒子，视频默认完整放入其中。 |
 | `objectPosition` | `string` | 图片的 `.object_position(p)`、`.object_top()` 等 | `objectFit` 确定尺寸后图片在盒子中的位置，同 CSS 的 `object-position`：关键字、百分比与长度（`"top"`、`"left bottom"`、`"25% 75%"`、`"right 10px bottom 20%"`）。覆盖盒子的图片围绕它裁剪。默认居中。 |
 
