@@ -425,7 +425,7 @@ view()
 |---|---|
 | `object-cover`、`object-contain`、`object-fill`、`object-none`、`object-scale-down` | `objectFit`（`fill` 拉伸；`none` 保持原始尺寸，按 `objectPosition` 放置；`scale-down` 同样放置，较大时缩小以适应）；图片和视频 |
 | `object-top`、`object-bottom`、`object-left`、`object-right`、`object-center`、`object-top-left`、`object-top-right`、`object-bottom-left`、`object-bottom-right`、`object-[<position>]` | `objectPosition`（`object-left-top` 等与 `object-top-left` 等相同） |
-| `tint-<color>` | `tintColor`（为模板图片着色；`nsh/mobile` 的 `TabBar` 中选中标签的颜色） |
+| `tint-<color>` | `tintColor`（为模板图片着色） |
 
 ## 可写但不起作用
 

@@ -47,7 +47,7 @@ final class TabBarComponent implements NshComponent {
     private final Bar bar;
     private final List<Item> items = new ArrayList<>();
     private int selected;
-    /** The style's {@code tintColor} (null: none): the selected tab's icon, label and indicator. */
+    /** The theme's {@code primary} (null: none): the selected tab's icon, label and indicator. */
     private Integer tint;
     /** The bottom inset the bar reaches under, in px. */
     private int inset;
@@ -80,16 +80,32 @@ final class TabBarComponent implements NshComponent {
                 selected = whole ? ((Number) value).intValue() : 0;
                 select();
                 break;
+            case "tint":
+                setTint(value instanceof String ? argb((String) value) : null);
+                break;
             default:
                 break;
         }
     }
 
-    /** The style's {@code tintColor} (null: none, the system's colors; transparent is a color). */
-    void setTint(Integer color) {
+    /** The theme's {@code primary} (null: none, the system's colors; transparent is a color). */
+    private void setTint(Integer color) {
         if (java.util.Objects.equals(color, tint)) return;
         tint = color;
         paint();
+    }
+
+    /** {@code #RRGGBB} or {@code #RRGGBBAA} (the core's hex) as ARGB; null when it is neither. */
+    private static Integer argb(String hex) {
+        String digits = hex.startsWith("#") ? hex.substring(1) : hex;
+        if (digits.length() != 6 && digits.length() != 8) return null;
+        long rgba;
+        try {
+            rgba = Long.parseLong(digits.length() == 6 ? digits + "ff" : digits, 16);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+        return (int) ((rgba >>> 8) | ((rgba & 0xff) << 24));
     }
 
     private void setItems(List<?> tabs) {
@@ -260,8 +276,8 @@ final class TabBarComponent implements NshComponent {
 
         void paint(boolean dark) {
             boolean on = isSelected();
-            // The app's tint: the selected icon and label in it, over an
-            // indicator of it at Material's state-layer opacity (12%).
+            // The theme's primary: the selected icon and label in it, over
+            // an indicator of it at Material's state-layer opacity (12%).
             pill.setColor(tint != null
                     ? (tint & 0x00ffffff) | (((tint >>> 24) * 0x1f / 0xff) << 24)
                     : color(dark ? 0xff4a4458 : 0xffe8def8, dark ? android.R.color.system_accent2_700 : android.R.color.system_accent2_100));

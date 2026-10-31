@@ -433,7 +433,7 @@ view()
 |---|---|---|
 | `placeholderColor` | `placeholder:text-*` | `<Input>` 占位文字的颜色 |
 | `selectionColor` | `selection:bg-*` | `<Input>` 或可选中 `<Text>` 的选区高亮 |
-| `tintColor` | `tint-*` | 重新给 `<Image>` 的不透明像素上色（模板图片、图标）；`nsh/mobile` 的 `TabBar` 中选中标签的颜色 |
+| `tintColor` | `tint-*` | 重新给 `<Image>` 的不透明像素上色（模板图片、图标） |
 | `borderCurve` | | `"continuous"`：与边平滑衔接的圆角，与系统自身的圆角一致（Apple 的连续圆角） |
 | `glassEffect` | | 在 iOS 26 和 macOS 26 上于视图背后绘制 Apple 的 Liquid Glass，其他平台使用 `backdropFilter` |
 | `writingDirection` | | 文字的基础方向：`"auto"`（默认，按内容判断，与平台自带的文字控件一致）、`"ltr"` 或 `"rtl"`；布局方向由 `direction` 设置 |

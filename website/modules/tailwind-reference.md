@@ -425,7 +425,7 @@ Transitions run on the UI thread when a value changes, including when a variant 
 |---|---|
 | `object-cover`, `object-contain`, `object-fill`, `object-none`, `object-scale-down` | `objectFit` (`fill` stretches, `none` keeps the natural size, placed at `objectPosition`, `scale-down` is the same, shrunk to fit where larger); images and videos |
 | `object-top`, `object-bottom`, `object-left`, `object-right`, `object-center`, `object-top-left`, `object-top-right`, `object-bottom-left`, `object-bottom-right`, `object-[<position>]` | `objectPosition` (`object-left-top`, ... are the same as `object-top-left`, ...) |
-| `tint-<color>` | `tintColor` (recolors template images; the selected tab of `nsh/mobile`'s `TabBar`) |
+| `tint-<color>` | `tintColor` (recolors template images) |
 
 ## Accepted without effect
 

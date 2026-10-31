@@ -3,9 +3,8 @@
 // `TabBar`, the system's tab bar on iOS and Android: its tabs (`items`, each `{ title, icon }`), the selected one
 // (`selectedIndex`), which the app sets, and `onChange`, which the
 // platform reports with the index of the tab the user chose. The bar takes
-// the frame the app's style gives it, as a native view does, and its
-// `tint-*` colors the selected tab; its script checks the frame and the
-// app's side of the selection.
+// the frame the app's style gives it, as a native view does; its script
+// checks the frame and the app's side of the selection.
 import { Text, View, signal } from "nsh";
 import { TabBar, isAvailable } from "nsh/mobile";
 
@@ -28,7 +27,6 @@ function App() {
         items={items()}
         selectedIndex={selected()}
         onChange={({ index }) => selected.set(index)}
-        class="tint-foreground"
         style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 60 }}
       />
     </View>
