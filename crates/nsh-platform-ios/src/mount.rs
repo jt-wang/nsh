@@ -21,8 +21,8 @@ use objc2::{
 use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
 use objc2_quartz_core::{CAAnimation, CALayer, CAMediaTiming, CATransform3D};
 use objc2_ui_kit::{
-    UIActivityIndicatorView, UIActivityIndicatorViewStyle, UIControlEvents, UIDevice,
-    UIGestureRecognizer, UIGestureRecognizerState, UIPanGestureRecognizer,
+    NSLayoutConstraint, UIActivityIndicatorView, UIActivityIndicatorViewStyle, UIControlEvents,
+    UIDevice, UIGestureRecognizer, UIGestureRecognizerState, UIPanGestureRecognizer,
     UIPinchGestureRecognizer, UIRefreshControl, UIRotationGestureRecognizer, UIScrollView,
     UIScrollViewContentInsetAdjustmentBehavior, UIScrollViewKeyboardDismissMode,
     UITraitEnvironment, UIUserInterfaceIdiom, UIView, UIViewAnimationOptions,
@@ -58,7 +58,9 @@ enum Native {
     Stack(Box<StackHost>),
     Screen(Box<ScreenHost>),
     Modal(Box<ModalHost>),
-    HeaderItem(Retained<NshView>),
+    /// A bar button's custom view with its width and height: UIKit's bar lays
+    /// these out, and keeps a width it took from a frame while a page is pushed.
+    HeaderItem(Retained<NshView>, [Retained<NSLayoutConstraint>; 2]),
     /// Shown over the keyboard by the inputs naming it; UIKit places it.
     InputAccessory(Retained<NshView>),
     Canvas(Retained<crate::canvas::CanvasView>),
@@ -81,7 +83,7 @@ impl Native {
             Native::Stack(s) => &s.container,
             Native::Screen(s) => &s.view,
             Native::Modal(m) => &m.view,
-            Native::HeaderItem(v) | Native::InputAccessory(v) => v,
+            Native::HeaderItem(v, _) | Native::InputAccessory(v) => v,
             Native::Canvas(v) => v,
             Native::Web(w) => &w.view,
             Native::Video(v) => &v.view,
@@ -95,7 +97,7 @@ impl Native {
         match self {
             Native::View(v)
             | Native::Image(v)
-            | Native::HeaderItem(v)
+            | Native::HeaderItem(v, _)
             | Native::InputAccessory(v) => Some(v),
             Native::Component(c) => Some(&c.container),
             Native::Canvas(v) => Some(v),
@@ -117,7 +119,7 @@ impl Native {
             | Native::Stack(_)
             | Native::Screen(_)
             | Native::Modal(_)
-            | Native::HeaderItem(_)
+            | Native::HeaderItem(..)
             | Native::InputAccessory(_)
             | Native::Canvas(_)
             | Native::Web(_)
@@ -904,7 +906,18 @@ impl Mounter {
                     ViewKind::Modal => {
                         Native::Modal(Box::new(ModalHost::new(self.mtm, id, self.control.clone())))
                     }
-                    ViewKind::HeaderItem => Native::HeaderItem(NshView::new(self.mtm)),
+                    ViewKind::HeaderItem => {
+                        let view = NshView::new(self.mtm);
+                        view.setTranslatesAutoresizingMaskIntoConstraints(false);
+                        let size = [
+                            view.widthAnchor().constraintEqualToConstant(0.0),
+                            view.heightAnchor().constraintEqualToConstant(0.0),
+                        ];
+                        for constraint in &size {
+                            constraint.setActive(true);
+                        }
+                        Native::HeaderItem(view, size)
+                    }
                     ViewKind::InputAccessory => Native::InputAccessory(NshView::new(self.mtm)),
                     ViewKind::Canvas => Native::Canvas(crate::canvas::CanvasView::new(self.mtm)),
                     ViewKind::WebView => Native::Web(Box::new(WebHost::new(
@@ -1037,19 +1050,18 @@ impl Mounter {
             MountItem::Frame { id, frame } => {
                 self.frames_applied = true;
                 if let Some(Slot {
-                    native: Native::HeaderItem(view),
+                    native: Native::HeaderItem(view, [width, height]),
                     ..
                 }) = self.slot(id)
                 {
                     // The header bar positions it; only its size is ours.
-                    let origin = view.frame().origin;
-                    view.setFrame(CGRect::new(
-                        origin,
-                        CGSize::new(
-                            frame.size.width.0 as CGFloat,
-                            frame.size.height.0 as CGFloat,
-                        ),
-                    ));
+                    let size = CGSize::new(
+                        frame.size.width.0 as CGFloat,
+                        frame.size.height.0 as CGFloat,
+                    );
+                    width.setConstant(size.width);
+                    height.setConstant(size.height);
+                    view.setFrame(CGRect::new(view.frame().origin, size));
                     return false;
                 }
                 if let Some(Slot {
@@ -2950,7 +2962,7 @@ impl Mounter {
                     self.dirty_stacks.push(parent);
                 }
             }
-            Native::HeaderItem(_) => self.dirty_headers.push(parent),
+            Native::HeaderItem(..) => self.dirty_headers.push(parent),
             Native::Modal(_) => self.dirty_modals.push(child),
             // Inputs show it (`MountItem::Input`).
             Native::InputAccessory(_) => {}
@@ -2977,7 +2989,7 @@ impl Mounter {
                     self.dirty_stacks.push(parent);
                 }
             }
-            Some(Native::HeaderItem(view)) => {
+            Some(Native::HeaderItem(view, _)) => {
                 view.removeFromSuperview();
                 self.dirty_headers.push(parent);
             }
@@ -3072,7 +3084,7 @@ impl Mounter {
             let press = Some(self.shared.clone());
             screen.apply_header(
                 |item| match self.slot(item).map(|s| &s.native) {
-                    Some(Native::HeaderItem(v)) => Some(Retained::into_super(v.clone())),
+                    Some(Native::HeaderItem(v, _)) => Some(Retained::into_super(v.clone())),
                     _ => None,
                 },
                 press,
