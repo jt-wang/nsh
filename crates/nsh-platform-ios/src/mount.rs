@@ -557,6 +557,9 @@ pub(crate) struct Mounter {
     created: Vec<NodeId>,
     /// Views fading out before their removal.
     disappearing: rustc_hash::FxHashSet<NodeId>,
+    /// The views fading out under a layout animation: they stay on screen,
+    /// with what is in them, until that ends, also once released.
+    leaving: Vec<Retained<UIView>>,
     /// One-shot display link for `requestAnimationFrame`.
     frame_link: Retained<objc2_quartz_core::CADisplayLink>,
     /// Parents of screens, header items and modals (which are not
@@ -664,6 +667,7 @@ impl Mounter {
             layout_animation: None,
             created: Vec::new(),
             disappearing: Default::default(),
+            leaving: Vec::new(),
             frame_link: crate::animation::frame_link(&target_for_link),
             shaders: crate::shader::Shaders::new(&target_for_link),
             text_colors: crate::interaction::TextColors::new(&target_for_link),
@@ -981,11 +985,14 @@ impl Mounter {
                     return false;
                 }
                 if self.disappearing.remove(&child)
-                    && let Some(c) = self.slot(child)
+                    && let Some(view) = self.slot(child).map(|c| c.native.view().retain())
                 {
                     // Back before its removal finished animating.
-                    c.native.view().layer().removeAllAnimations();
-                    apply_dynamic(c, &self.animator);
+                    self.leaving.retain(|v| !std::ptr::eq(&**v, &*view));
+                    view.layer().removeAllAnimations();
+                    if let Some(c) = self.slot(child) {
+                        apply_dynamic(c, &self.animator);
+                    }
                 }
                 if let (Some(p), Some(c)) = (self.slot(parent), self.slot(child)) {
                     let zoom = p.zoom_view();
@@ -1012,7 +1019,9 @@ impl Mounter {
                 if let Some(s) = self.slot(id) {
                     match self.layout_animation.and_then(|a| a.delete) {
                         Some(t) => {
-                            disappear(s.native.view(), id, &t, self.shared.clone(), self.mtm);
+                            let view = s.native.view();
+                            disappear(view, id, &t, self.shared.clone(), self.mtm);
+                            self.leaving.push(view.retain());
                             self.disappearing.insert(id);
                         }
                         None => s.native.view().removeFromSuperview(),
@@ -1039,7 +1048,12 @@ impl Mounter {
                         self.touch_listener_changed(false);
                     }
                     self.touch_trackers.retain(|(root, _)| *root != id);
-                    s.native.view().removeFromSuperview();
+                    // Fading out, or inside what is: the end of the fade
+                    // takes it off the screen.
+                    let view = s.native.view();
+                    if !self.leaving.iter().any(|f| view.isDescendantOfView(f)) {
+                        view.removeFromSuperview();
+                    }
                     for key in [&s.image_key, &s.placeholder_key].into_iter().flatten() {
                         self.images.cancel(id, key);
                     }
@@ -3772,14 +3786,18 @@ impl Mounter {
         }
     }
 
-    /// The removal animation of view `id` finished.
-    pub(crate) fn disappeared(&mut self, id: NodeId) {
+    /// The removal animation of `view`, node `id`'s, finished. Back on
+    /// screen meanwhile, it is not leaving any more.
+    pub(crate) fn disappeared(&mut self, id: NodeId, view: &UIView) {
+        let Some(i) = self.leaving.iter().position(|v| std::ptr::eq(&**v, view)) else {
+            return;
+        };
+        self.leaving.swap_remove(i);
+        view.removeFromSuperview();
+        view.layer().removeAllAnimations();
         if self.disappearing.remove(&id)
             && let Some(s) = self.slot(id)
         {
-            let view = s.native.view();
-            view.removeFromSuperview();
-            view.layer().removeAllAnimations();
             apply_dynamic(s, &self.animator);
         }
     }
@@ -4362,6 +4380,7 @@ fn disappear(
     mtm: MainThreadMarker,
 ) {
     let target = view.retain();
+    let finished = view.retain();
     let property = t.property;
     let block = block2::RcBlock::new(move || match property {
         LayoutProperty::Opacity => target.setAlpha(0.0),
@@ -4375,7 +4394,7 @@ fn disappear(
             .borrow_mut()
             .as_mut()
         {
-            m.disappeared(id);
+            m.disappeared(id, &finished);
         }
     });
     UIView::animateWithDuration_delay_options_animations_completion(

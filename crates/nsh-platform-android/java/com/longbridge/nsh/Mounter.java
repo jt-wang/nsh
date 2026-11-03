@@ -167,6 +167,8 @@ final class Mounter {
     private final java.util.HashSet<Integer> created = new java.util.HashSet<>();
     /** Running frame / disappearance animations, by view. */
     private final SparseArray<Animator> layoutAnimators = new SparseArray<>();
+    /** Views fading out under a layout animation. They stay on screen, with what is in them, until that ends. */
+    private final java.util.HashSet<View> leaving = new java.util.HashSet<>();
     private InputBox focused;
 
     /** The focused input, if any. */
@@ -776,6 +778,7 @@ final class Mounter {
             @Override
             public void onAnimationEnd(Animator animation) {
                 if (layoutAnimators.get(id) == animation) layoutAnimators.remove(id);
+                leaving.remove(v);
                 if (!cancelled) {
                     detach(v);
                     Dynamic d = statics.get(id);
@@ -784,7 +787,16 @@ final class Mounter {
             }
         });
         layoutAnimators.put(id, a);
+        leaving.add(v);
         start(a, t);
+    }
+
+    /** Whether `v` is fading out, or inside a view that is. */
+    private boolean isLeaving(View v) {
+        for (View x = v; x != null; x = x.getParent() instanceof View ? (View) x.getParent() : null) {
+            if (leaving.contains(x)) return true;
+        }
+        return false;
     }
 
     /** Fades or grows in the views a layout animation created. */
@@ -836,8 +848,13 @@ final class Mounter {
         }
         screenOptions.remove(id);
         Animator running = layoutAnimators.get(id);
-        if (running != null) running.cancel();
-        detach(v);
+        if (leaving.contains(v)) {
+            // Released while it fades out: the end of the fade takes it off the screen.
+            layoutAnimators.remove(id);
+        } else {
+            if (running != null) running.cancel();
+            if (!isLeaving(v)) detach(v);
+        }
         if (v instanceof ImageBox) cancelImage((ImageBox) v);
         if (v instanceof WebBox) ((WebBox) v).destroy();
         if (v instanceof VideoBox) ((VideoBox) v).destroy();
