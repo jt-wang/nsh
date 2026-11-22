@@ -19,8 +19,15 @@ backgrounded, offscreen or detached text pauses. The web draws an inert, aria-hi
 the positioned runs under one CSS gradient mask, animated by shared CSS keyframes. Reduced
 motion hides that copy; intersection and page visibility events pause its animation. Turning
 shimmer off, removing the text or stopping the app releases its observer entries and copy.
-Native drawing and event-driven low-power and lifecycle handling are being added separately;
-iOS and Android currently store the opt-in flag and resolved highlight color.
+iOS renders a highlight-colored glyph image only when text is painted, leaving the base
+glyphs unchanged. A single Core Animation gradient mask sweeps across the entire block;
+there is no display link or per-frame application work. Reduce Motion and Low Power Mode
+notifications hide the copy and remove its animation. Detaching or hiding the Text also
+removes it, and returning restarts it. Backgrounding explicitly removes the animation
+(`UIApplicationDidEnterBackgroundNotification`); becoming active re-adds it, so it cannot
+keep running in the render server while the app is backgrounded. Observer tokens use weak
+view references and are removed when shimmer is disabled or the view is released.
+Android drawing is being added separately.
 
 ## Text behavior
 
