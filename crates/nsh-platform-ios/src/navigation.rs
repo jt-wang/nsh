@@ -226,6 +226,9 @@ define_class!(
             let _: () = unsafe { msg_send![super(self), viewDidAppear: animated] };
             let id = self.ivars().id;
             self.ivars().control.dispatch_event(id, EventKind::Show, EventPayload::None);
+            if let Some(view) = self.view() {
+                crate::text_view::recheck_shimmer_under(&view);
+            }
         }
 
         /// Escape on a hardware keyboard.
@@ -628,6 +631,9 @@ define_class!(
             // hierarchy after `reconcile` has sized what was there: the one
             // it brought in is only reachable here.
             size_screens(nav);
+            if let Some(view) = controller.view() {
+                crate::text_view::recheck_shimmer_under(&view);
+            }
             defer_to_back_swipe(nav);
             let stack = self.ivars().stack;
             self.with_mounter(|m| m.stack_did_show(stack));

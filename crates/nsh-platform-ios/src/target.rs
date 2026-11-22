@@ -326,6 +326,7 @@ define_class!(
                 .control
                 .scroll(id, point(px(offset.x as f32), px(offset.y as f32)), applied);
             self.with_mounter(move |m| m.scrolled(id, offset));
+            crate::text_view::recheck_shimmer_under(scroll);
             // A text area scrolling moves its caret.
             if scroll.downcast_ref::<input::Area>().is_some() {
                 self.caret_moved(scroll);

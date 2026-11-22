@@ -1,4 +1,4 @@
-import { Image, type JSX, signal, Text, View } from "nsh";
+import { Image, type JSX, Scroll, signal, Text, View } from "nsh";
 import { fontScale } from "nsh";
 import pacifico from "../fonts/Pacifico-Regular.ttf";
 import logo from "../logo@2x.png";
@@ -306,6 +306,18 @@ function Shimmer() {
       <View style={{ backgroundColor: "#fff", padding: 24, borderRadius: 12 }}>
         <Text shimmer style={{ color: "#666666", fontSize: 32, alignSelf: "flex-start" }}>Working…</Text>
       </View>
+      <Caption label="Scroll to row 21 to reveal the highlight, then past it to pause it." />
+      <Scroll testID="shimmer-scroll" style={{ height: 160, backgroundColor: "#000", borderRadius: 12 }}>
+        <View>
+          {Array.from({ length: 31 }, (_, i) => (
+            <View style={{ height: 40, flexShrink: 0, justifyContent: "center", paddingHorizontal: 16 }}>
+              {i === 20
+                ? <Text testID="shimmer-scroll-text" shimmer style={{ color: "#929292", fontSize: 24, alignSelf: "flex-start" }}>Working…</Text>
+                : <Text style={{ color: "#929292", fontSize: 14 }}>Row {i + 1}</Text>}
+            </View>
+          ))}
+        </View>
+      </Scroll>
     </Card>
   );
 }

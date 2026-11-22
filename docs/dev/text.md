@@ -25,8 +25,11 @@ iOS renders a highlight-colored glyph image only when text is painted, leaving t
 glyphs unchanged. A single Core Animation gradient mask sweeps across the entire block;
 there is no display link or per-frame application work. Reduce Motion, Increase Contrast
 (darker system colors) and Low Power Mode notifications hide the copy and remove its animation.
-Detaching or hiding the Text also
-removes it, and returning restarts it. Backgrounding explicitly removes the animation
+Detaching, hiding or fully clipping the Text also removes it, and returning restarts it.
+Visibility intersects its window-space bounds with the window and every clipping ancestor;
+hidden or transparent ancestors suppress the band too. Layout and scroll delegate events
+recheck a weak registry of shimmer texts, including attached overscan rows, without polling.
+Backgrounding explicitly removes the animation
 (`UIApplicationDidEnterBackgroundNotification`); becoming active re-adds it, so it cannot
 keep running in the render server while the app is backgrounded. Observer tokens use weak
 view references and are removed when shimmer is disabled or the view is released.
