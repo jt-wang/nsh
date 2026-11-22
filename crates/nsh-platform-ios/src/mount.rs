@@ -16,7 +16,8 @@ use nsh_core::{
 };
 use nsh_engine::EngineControl;
 use objc2::{
-    MainThreadMarker, MainThreadOnly, Message, rc::Retained, runtime::ProtocolObject, sel,
+    DefinedClass, MainThreadMarker, MainThreadOnly, Message, rc::Retained, runtime::ProtocolObject,
+    sel,
 };
 use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
 use objc2_quartz_core::{CAAnimation, CALayer, CAMediaTiming, CATransform3D};
@@ -3304,6 +3305,12 @@ impl Mounter {
         let (control, mtm) = (self.control.clone(), self.mtm);
         let Some(s) = self.slot_mut(id) else { return };
         s.long_press_delay = props.long_press_delay;
+        if let Native::Text(view) = &s.native {
+            view.ivars().shimmer.set(props.text_shimmer);
+            view.ivars()
+                .shimmer_color
+                .set(props.text_shimmer_color.unwrap_or(Color::BLACK));
+        }
         s.pan_scroll_handoff = props.pan_scroll_handoff;
         if let Some(pan) = &s.gestures.pan {
             pan.setMaximumNumberOfTouches(if props.pan_scroll_handoff {

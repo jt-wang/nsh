@@ -1204,6 +1204,14 @@ impl<M: TextEngine> Core<M> {
                 let id = node.id;
                 self.color_changed.push((k, id));
             }
+            if node.text_style.color.is_none()
+                && node
+                    .props
+                    .as_ref()
+                    .is_some_and(|p| p.text_shimmer && p.text_shimmer_color.is_none())
+            {
+                self.mark(k, dirty::VIEW_PROPS);
+            }
             let node = &self.nodes[k as usize];
             if node.text_style.color.is_none() {
                 stack.extend_from_slice(&node.children);
