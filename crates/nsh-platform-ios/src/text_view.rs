@@ -588,6 +588,7 @@ impl TextView {
             unsafe {
                 for name in [
                     objc2_ui_kit::UIAccessibilityReduceMotionStatusDidChangeNotification,
+                    objc2_ui_kit::UIAccessibilityDarkerSystemColorsStatusDidChangeNotification,
                     objc2_foundation::NSProcessInfoPowerStateDidChangeNotification,
                     objc2_ui_kit::UIApplicationDidEnterBackgroundNotification,
                     objc2_ui_kit::UIApplicationDidBecomeActiveNotification,
@@ -616,6 +617,7 @@ impl TextView {
                 && self.window().is_some()
                 && !self.isHidden()
                 && !objc2_ui_kit::UIAccessibilityIsReduceMotionEnabled()
+                && !objc2_ui_kit::UIAccessibilityDarkerSystemColorsEnabled()
                 && !NSProcessInfo::processInfo().isLowPowerModeEnabled()
                 && objc2_ui_kit::UIApplication::sharedApplication(self.mtm()).applicationState()
                     == objc2_ui_kit::UIApplicationState::Active
