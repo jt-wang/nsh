@@ -803,6 +803,16 @@ fn props_json(p: &ViewProps) -> String {
     }
     if p.text_shimmer {
         s.push_str(",\"shimmer\":true");
+        let width = nsh_core::shimmer::BAND_WIDTH.0;
+        let [edge, center, end] = nsh_core::shimmer::COVERAGE.map(|p| p.0);
+        let _ = write!(
+            s,
+            ",\"shimmerPaint\":\"animation-duration:{}ms;mask-size:{}% 100%;mask-image:linear-gradient(to right,rgba(0,0,0,{edge}),rgba(0,0,0,{center}),rgba(0,0,0,{end}));--nsh-shimmer-start:{}%;--nsh-shimmer-end:{}%;\"",
+            nsh_core::shimmer::PERIOD.as_millis(),
+            width * 100.0,
+            -width / (1.0 - width) * 100.0,
+            100.0 / (1.0 - width)
+        );
     }
     if let Some(color) = p.text_shimmer_color {
         let _ = write!(s, ",\"shimmerColor\":\"{}\"", css_color(color));

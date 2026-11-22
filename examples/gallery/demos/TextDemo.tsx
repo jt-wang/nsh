@@ -293,6 +293,19 @@ function Alignment() {
 }
 
 export function TextDemo() {
-  const cards = [Links, Inline, Fonts, Scaling, Truncation, Cjk, RightToLeft, Alignment];
+  const cards = [Shimmer, Links, Inline, Fonts, Scaling, Truncation, Cjk, RightToLeft, Alignment];
   return <DemoPage cards={cards} />;
+}
+
+function Shimmer() {
+  return (
+    <Card icon="text" title="Shimmer" subtitle="A native highlight over the text’s own color">
+      <View style={{ backgroundColor: "#000", padding: 24, borderRadius: 12 }}>
+        <Text shimmer style={{ color: "#929292", fontSize: 32, alignSelf: "flex-start" }}>Working…</Text>
+      </View>
+      <View style={{ backgroundColor: "#fff", padding: 24, borderRadius: 12 }}>
+        <Text shimmer style={{ color: "#666666", fontSize: 32, alignSelf: "flex-start" }}>Working…</Text>
+      </View>
+    </Card>
+  );
 }

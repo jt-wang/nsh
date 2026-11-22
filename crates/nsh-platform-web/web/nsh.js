@@ -93,6 +93,19 @@ const KEYFRAMES = `
   50% { transform: translateY(0); animation-timing-function: cubic-bezier(0,0,0.2,1); }
 }
 @keyframes nsh-spinner { to { transform: rotate(360deg); } }
+@keyframes nsh-shimmer {
+  from { mask-position: var(--nsh-shimmer-start) 0; }
+  to { mask-position: var(--nsh-shimmer-end) 0; }
+}
+.nsh-shimmer {
+  position: absolute; inset: 0; pointer-events: none; user-select: none;
+  mask-repeat: no-repeat; animation: nsh-shimmer linear infinite;
+}
+.nsh-shimmer-run, .nsh-shimmer-run * {
+  color: var(--nsh-shimmer-color) !important; background: none !important;
+  text-shadow: none !important; text-decoration: none !important;
+}
+.nsh-reduce .nsh-shimmer { display: none !important; }
 /* Reduced motion: style transitions and keyframes do not run, as on the
    native backends. */
 .nsh-reduce .nsh-v { transition: none !important; animation: none !important; }
@@ -137,7 +150,7 @@ const KEYFRAMES = `
 .nsh-bar { position: sticky; left: 0; top: 0; width: 0; height: 0; z-index: 2147483000; pointer-events: none; }
 .nsh-bar > div { position: absolute; border-radius: 2px; background: rgba(0,0,0,.45); transition: opacity .3s; }
 .nsh-dark .nsh-bar > div { background: rgba(255,255,255,.55); }
-.nsh-run { position: absolute; white-space: pre; }
+.nsh-run, .nsh-shimmer-run { position: absolute; white-space: pre; }
 .nsh-run-bg { position: absolute; pointer-events: none; }
 .nsh-border { position: absolute; inset: 0; pointer-events: none; }
 /* The mounter's own styles: no element has an inline style but its frame
@@ -1171,6 +1184,7 @@ class Player {
     this.started = false;
     this.hostEvents ??= [];
     this.fileOperations.clear();
+    for (const el of [...this.shimmerViews ?? []]) this.removeShimmer(el);
     for (const id of [...this.requests.keys()]) this.fetchCancel(id);
     for (const id of [...this.websockets.keys()]) this.websocketCancel(id);
     clearTimeout(this.timer);
@@ -1498,6 +1512,7 @@ class Player {
     child._leftWith = null;
     const host = parent._layer ?? parent;
     host.insertBefore(child, before && before.parentNode === host ? before : null);
+    this.shimmerTree(child, true);
     if (parent._kind === "stack") {
       this.changedStacks.add(parent);
       this.stackChanged(parent, child);
@@ -1507,6 +1522,7 @@ class Player {
   op_r([, id]) {
     const el = this.view(id);
     if (!el) return;
+    this.shimmerTree(el, false);
     if (el._kind === "modal") {
       this.dismiss(el);
       return;
@@ -1538,6 +1554,7 @@ class Player {
   op_d([, id]) {
     const el = this.view(id);
     if (!el) return;
+    this.shimmerTree(el, false);
     this.views.delete(id);
     this.mouseTracked.delete(id);
     if (el._video) {
@@ -1698,7 +1715,10 @@ class Player {
     swapClass(el, "_selection", this.styleClass(selection));
     el._textLabel = runs.map((r) => r[2]).join("");
     if (el._props?.label == null) el.setAttribute("aria-label", el._textLabel);
+    this.syncShimmer(el, true);
   }
+
+
 
   op_e([, id, events]) {
     const el = this.view(id);
@@ -1770,6 +1790,7 @@ class Player {
     el._props = props;
     el._shimmer = el._kind === "text" && !!props.shimmer;
     el._shimmerColor = el._kind === "text" ? props.shimmerColor : undefined;
+    this.syncShimmer(el);
     if (props.testID) el.dataset.testid = props.testID;
     else delete el.dataset.testid;
     const pe = props.pointerEvents;
@@ -4384,6 +4405,7 @@ class Player {
     this.root.classList.toggle("nsh-dark", this.shownDark);
     this.root.classList.toggle("nsh-desktop", this.desktopUI);
     this.root.classList.toggle("nsh-reduce", this.reduceMotion());
+    for (const el of this.shimmerViews ?? []) this.shimmerMotion(el);
   }
 
   /** The user asked for less motion (`Environment::reduce_motion`). */
