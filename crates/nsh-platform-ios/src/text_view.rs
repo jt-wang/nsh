@@ -6,7 +6,7 @@ use nsh_core::{
 };
 use objc2::{
     AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send,
-    rc::Retained,
+    rc::{Retained, Weak},
     runtime::{AnyObject, ProtocolObject, Sel},
     sel,
 };
@@ -36,6 +36,73 @@ use crate::{
     text::{CoreTextLayout, LaidLine, decoration_key, strikethrough_key, underline_key},
     text_selection::{self, Selection},
 };
+
+thread_local! {
+    static SHIMMER_VIEWS: RefCell<Vec<(usize, Weak<TextView>)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Rechecks only the shimmer texts under `scroll`, a scroll view whose bounds moved
+/// or a screen that finished moving in.
+pub(crate) fn recheck_shimmer_under(scroll: &UIView) {
+    SHIMMER_VIEWS.with(|registry| {
+        let mut registry = registry.borrow_mut();
+        if registry.is_empty() {
+            return;
+        }
+        let mut views = Vec::new();
+        registry.retain(|(_, weak)| {
+            let Some(view) = weak.load() else {
+                return false;
+            };
+            if view.isDescendantOfView(scroll) {
+                views.push(view);
+            }
+            true
+        });
+        drop(registry);
+        for view in views {
+            view.update_shimmer();
+        }
+    });
+}
+
+fn visible_intersection(a: CGRect, b: CGRect) -> Option<CGRect> {
+    let x = a.origin.x.max(b.origin.x);
+    let y = a.origin.y.max(b.origin.y);
+    let right = (a.origin.x + a.size.width).min(b.origin.x + b.size.width);
+    let bottom = (a.origin.y + a.size.height).min(b.origin.y + b.size.height);
+    (right > x && bottom > y)
+        .then(|| CGRect::new(CGPoint::new(x, y), CGSize::new(right - x, bottom - y)))
+}
+
+fn shimmer_debug(active: bool, view: &TextView) {
+    #[cfg(debug_assertions)]
+    {
+        use std::io::Write;
+        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *ENABLED.get_or_init(|| std::env::var_os("NSH_SHIMMER_DEBUG").is_some())
+            && let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(std::env::temp_dir().join("shim.log"))
+        {
+            let _ = writeln!(
+                file,
+                "shimmer anim {} {:p} w={} t={:?}",
+                if active { "on" } else { "off" },
+                view,
+                view.bounds().size.width,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis()
+                    % 100000
+            );
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    let _ = (active, view);
+}
 
 /// Draws the decoration lines CoreText does not: strikethroughs, and
 /// underlines with a style, thickness or offset (y-up text space).
@@ -199,6 +266,10 @@ pub(crate) struct TextViewIvars {
 
 impl Drop for TextViewIvars {
     fn drop(&mut self) {
+        let key = self as *const Self as usize;
+        let _ = SHIMMER_VIEWS.try_with(|registry| {
+            registry.borrow_mut().retain(|(id, _)| *id != key);
+        });
         for observer in self.shimmer_observers.get_mut().drain(..) {
             // SAFETY: these are the tokens returned by NSNotificationCenter.
             unsafe { NSNotificationCenter::defaultCenter().removeObserver(observer.as_ref()) };
@@ -249,6 +320,13 @@ define_class!(
             let _: () = unsafe { msg_send![super(self), didMoveToWindow] };
             // Into or out of a selectable view, which selects instead.
             self.update_own_selection();
+            self.update_shimmer();
+        }
+
+        #[unsafe(method(layoutSubviews))]
+        fn layout_subviews(&self) {
+            // SAFETY: calling UIView's layout implementation.
+            unsafe { let _: () = msg_send![super(self), layoutSubviews]; }
             self.update_shimmer();
         }
 
@@ -578,6 +656,14 @@ impl TextView {
     }
 
     pub(crate) fn configure_shimmer(view: &Retained<Self>) {
+        let key = view.ivars() as *const TextViewIvars as usize;
+        SHIMMER_VIEWS.with(|registry| {
+            let mut registry = registry.borrow_mut();
+            registry.retain(|(id, weak)| *id != key && weak.load().is_some());
+            if view.ivars().shimmer.get() {
+                registry.push((key, Weak::from_retained(view)));
+            }
+        });
         let mut observers = view.ivars().shimmer_observers.borrow_mut();
         let center = NSNotificationCenter::defaultCenter();
         if !view.ivars().shimmer.get() {
@@ -618,6 +704,36 @@ impl TextView {
         view.setNeedsDisplay();
     }
 
+    fn shimmer_visible(&self) -> bool {
+        let Some(window) = self.window() else {
+            return false;
+        };
+        let Some(mut visible) = visible_intersection(
+            self.convertRect_toView(self.bounds(), Some(&window)),
+            window.bounds(),
+        ) else {
+            return false;
+        };
+        if self.isHidden() || self.alpha() <= 0.0 {
+            return false;
+        }
+        let mut ancestor = self.superview();
+        while let Some(view) = ancestor {
+            if view.isHidden() || view.alpha() <= 0.0 {
+                return false;
+            }
+            if view.clipsToBounds() || view.layer().masksToBounds() {
+                let clip = view.convertRect_toView(view.bounds(), Some(&window));
+                let Some(intersection) = visible_intersection(visible, clip) else {
+                    return false;
+                };
+                visible = intersection;
+            }
+            ancestor = view.superview();
+        }
+        true
+    }
+
     pub(crate) fn update_shimmer(&self) {
         let layers = self.ivars().shimmer_layer.borrow();
         let Some((highlight, mask)) = layers.as_ref() else {
@@ -625,8 +741,7 @@ impl TextView {
         };
         let active = {
             self.ivars().shimmer.get()
-                && self.window().is_some()
-                && !self.isHidden()
+                && self.shimmer_visible()
                 && !objc2_ui_kit::UIAccessibilityIsReduceMotionEnabled()
                 && !objc2_ui_kit::UIAccessibilityDarkerSystemColorsEnabled()
                 && !NSProcessInfo::processInfo().isLowPowerModeEnabled()
@@ -635,6 +750,10 @@ impl TextView {
         };
         highlight.setHidden(!active);
         if !active {
+            // SAFETY: only querying whether our own animation exists.
+            if unsafe { mask.animationForKey(ns_string!("shimmer")) }.is_some() {
+                shimmer_debug(false, self);
+            }
             mask.removeAnimationForKey(ns_string!("shimmer"));
         // SAFETY: the animation is only queried for its presence.
         } else if unsafe { mask.animationForKey(ns_string!("shimmer")) }.is_none() {
@@ -652,6 +771,7 @@ impl TextView {
                 unsafe { objc2_quartz_core::kCAMediaTimingFunctionLinear },
             )));
             mask.addAnimation_forKey(&animation, Some(ns_string!("shimmer")));
+            shimmer_debug(true, self);
         }
     }
 
@@ -921,5 +1041,48 @@ impl TextView {
     fn hidden_from_accessibility(&self) -> bool {
         // SAFETY: a plain getter.
         unsafe { msg_send![self, accessibilityElementsHidden] }
+    }
+}
+
+#[cfg(test)]
+mod shimmer_visibility_tests {
+    use super::*;
+
+    fn rect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) -> CGRect {
+        CGRect::new(CGPoint::new(x, y), CGSize::new(width, height))
+    }
+
+    #[test]
+    fn clips_in_window_coordinates_across_ancestors() {
+        let text = rect(10.0, 80.0, 100.0, 40.0);
+        let window = rect(0.0, 0.0, 400.0, 800.0);
+        let scroll = rect(0.0, 100.0, 200.0, 160.0);
+        let visible = visible_intersection(text, window).unwrap();
+        assert_eq!(
+            visible_intersection(visible, scroll),
+            Some(rect(10.0, 100.0, 100.0, 20.0))
+        );
+        let parent = rect(0.0, 130.0, 200.0, 100.0);
+        assert!(
+            visible_intersection(visible_intersection(visible, scroll).unwrap(), parent).is_none()
+        );
+    }
+
+    #[test]
+    fn fully_scrolled_out_and_empty_bounds_are_invisible() {
+        let viewport = rect(0.0, 0.0, 200.0, 160.0);
+        for text in [
+            rect(10.0, 160.0, 100.0, 40.0),
+            rect(10.0, -40.0, 100.0, 40.0),
+            rect(200.0, 10.0, 100.0, 40.0),
+            rect(10.0, 10.0, 0.0, 40.0),
+            rect(10.0, 10.0, 100.0, 0.0),
+        ] {
+            assert!(visible_intersection(text, viewport).is_none());
+        }
+        assert_eq!(
+            visible_intersection(rect(10.0, 20.0, 100.0, 40.0), viewport),
+            Some(rect(10.0, 20.0, 100.0, 40.0))
+        );
     }
 }
