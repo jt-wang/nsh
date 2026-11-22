@@ -1721,7 +1721,85 @@ class Player {
     this.syncShimmer(el, true);
   }
 
+  shimmerTree(el, mounted) {
+    if (!this.shimmerUsed) return;
+    for (const view of [el, ...el.querySelectorAll(".nsh-v")]) {
+      if (mounted) this.syncShimmer(view);
+      else this.removeShimmer(view);
+    }
+  }
 
+  syncShimmer(el, refresh = false) {
+    if (!el._shimmer || el._kind !== "text") {
+      this.removeShimmer(el);
+      return;
+    }
+    this.shimmerUsed = true;
+    const runs = [...el.querySelectorAll(":scope > .nsh-run")];
+    if (!runs.length) {
+      this.removeShimmer(el);
+      return;
+    }
+    if (!el._shimmerOverlay) {
+      const overlay = document.createElement("div");
+      overlay.className = "nsh-shimmer";
+      overlay.setAttribute("aria-hidden", "true");
+      overlay.inert = true;
+      el.append(overlay);
+      el._shimmerOverlay = overlay;
+      refresh = true;
+      if (!this.shimmerViews?.size) {
+        this.shimmerViews = new Set();
+        this.shimmerVisibility = () => {
+          for (const view of this.shimmerViews) this.shimmerMotion(view);
+        };
+        document.addEventListener("visibilitychange", this.shimmerVisibility);
+        if (typeof IntersectionObserver !== "undefined") {
+          this.shimmerObserver = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+              if (!this.shimmerViews.has(entry.target)) continue;
+              entry.target._shimmerVisible = entry.isIntersecting;
+              this.shimmerMotion(entry.target);
+            }
+          });
+        }
+      }
+      this.shimmerViews.add(el);
+      el._shimmerVisible = !this.shimmerObserver;
+      this.shimmerObserver?.observe(el);
+    }
+    const overlay = el._shimmerOverlay;
+    overlay.style.cssText = el._props?.shimmerPaint ?? "";
+    overlay.style.setProperty("--nsh-shimmer-color", el._shimmerColor);
+    if (refresh) overlay.replaceChildren(...runs.map((run) => {
+      const clone = run.cloneNode(true);
+      clone.classList.replace("nsh-run", "nsh-shimmer-run");
+      return clone;
+    }));
+    this.shimmerMotion(el);
+  }
+
+  shimmerMotion(el) {
+    const overlay = el._shimmerOverlay;
+    if (!overlay) return;
+    overlay.hidden = this.reduceMotion();
+    overlay.style.animationPlayState = document.hidden || !el.isConnected || !el._shimmerVisible || overlay.hidden
+      ? "paused" : "running";
+  }
+
+  removeShimmer(el) {
+    if (!el._shimmerOverlay) return;
+    el._shimmerOverlay.remove();
+    el._shimmerOverlay = null;
+    this.shimmerObserver?.unobserve(el);
+    this.shimmerViews.delete(el);
+    if (!this.shimmerViews.size) {
+      this.shimmerObserver?.disconnect();
+      this.shimmerObserver = null;
+      document.removeEventListener("visibilitychange", this.shimmerVisibility);
+      this.shimmerVisibility = null;
+    }
+  }
 
   op_e([, id, events]) {
     const el = this.view(id);
