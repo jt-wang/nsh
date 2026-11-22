@@ -2,7 +2,7 @@ use std::{cell::RefCell, sync::Arc};
 
 use nsh_core::{AttributedText, Bounds, Points, TextLayout, TextLink};
 use objc2::{
-    DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send,
+    AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send,
     rc::Retained,
     runtime::{AnyObject, ProtocolObject, Sel},
     sel,
@@ -16,6 +16,10 @@ use objc2_core_text::{CTFont, CTRun, kCTFontAttributeName};
 use objc2_foundation::{
     NSArray, NSAttributedStringKey, NSComparisonResult, NSDictionary, NSInteger, NSObject,
     NSObjectProtocol, NSRange, NSString,
+};
+use objc2_foundation::{NSNotificationCenter, NSNumber, NSProcessInfo, ns_string};
+use objc2_quartz_core::{
+    CABasicAnimation, CAGradientLayer, CALayer, CAMediaTiming, CAMediaTimingFunction,
 };
 use objc2_ui_kit::{
     NSWritingDirection, UIAccessibilityTraitStaticText, UIAccessibilityTraits, UIColor,
@@ -176,6 +180,8 @@ pub(crate) struct TextViewIvars {
     /// The block's native shimmer, independent of its typeset layout.
     pub(crate) shimmer: std::cell::Cell<bool>,
     pub(crate) shimmer_color: std::cell::Cell<nsh_core::Color>,
+    shimmer_layer: RefCell<Option<(Retained<CALayer>, Retained<CAGradientLayer>)>>,
+    shimmer_observers: RefCell<Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>>,
     /// `selectable`: the range selection (`text_selection.rs`).
     pub(crate) selection: Selection,
     /// An animated `color` (`0xRRGGBBAA`): the whole text is drawn in it.
@@ -183,6 +189,15 @@ pub(crate) struct TextViewIvars {
     /// The part a selectable view selected (UTF-16 offsets) and its
     /// highlight (`selectable_view.rs`).
     area_highlight: std::cell::Cell<Option<((usize, usize), nsh_core::Color)>>,
+}
+
+impl Drop for TextViewIvars {
+    fn drop(&mut self) {
+        for observer in self.shimmer_observers.get_mut().drain(..) {
+            // SAFETY: these are the tokens returned by NSNotificationCenter.
+            unsafe { NSNotificationCenter::defaultCenter().removeObserver(observer.as_ref()) };
+        }
+    }
 }
 
 define_class!(
@@ -228,6 +243,14 @@ define_class!(
             let _: () = unsafe { msg_send![super(self), didMoveToWindow] };
             // Into or out of a selectable view, which selects instead.
             self.update_own_selection();
+            self.update_shimmer();
+        }
+
+        #[unsafe(method(setHidden:))]
+        fn set_hidden(&self, hidden: bool) {
+            // SAFETY: calling UIView's implementation.
+            unsafe { let _: () = msg_send![super(self), setHidden: hidden]; }
+            self.update_shimmer();
         }
 
         #[unsafe(method(canPerformAction:withSender:))]
@@ -349,6 +372,7 @@ define_class!(
                 CGContext::end_transparency_layer(c);
             }
             CGContext::restore_g_state(c);
+            self.draw_shimmer(text, *content);
         }
     }
 
@@ -540,6 +564,184 @@ impl TextView {
         // before it is placed): draw again when the size changes.
         view.setContentMode(objc2_ui_kit::UIViewContentMode::Redraw);
         view
+    }
+
+    pub(crate) fn configure_shimmer(view: &Retained<Self>) {
+        let mut observers = view.ivars().shimmer_observers.borrow_mut();
+        let center = NSNotificationCenter::defaultCenter();
+        if !view.ivars().shimmer.get() {
+            for observer in observers.drain(..) {
+                // SAFETY: tokens returned by this notification center.
+                unsafe { center.removeObserver(observer.as_ref()) };
+            }
+        } else if observers.is_empty() {
+            let weak = objc2::rc::Weak::from_retained(view);
+            let block = block2::RcBlock::new(
+                move |_: std::ptr::NonNull<objc2_foundation::NSNotification>| {
+                    if let Some(view) = weak.load() {
+                        view.update_shimmer();
+                    }
+                },
+            );
+            // SAFETY: immutable system notification names; the main queue serializes
+            // callbacks with UIKit and the weak reference does not retain the view.
+            unsafe {
+                for name in [
+                    objc2_ui_kit::UIAccessibilityReduceMotionStatusDidChangeNotification,
+                    objc2_foundation::NSProcessInfoPowerStateDidChangeNotification,
+                    objc2_ui_kit::UIApplicationDidEnterBackgroundNotification,
+                    objc2_ui_kit::UIApplicationDidBecomeActiveNotification,
+                ] {
+                    observers.push(center.addObserverForName_object_queue_usingBlock(
+                        Some(name),
+                        None,
+                        Some(&objc2_foundation::NSOperationQueue::mainQueue()),
+                        &block,
+                    ));
+                }
+            }
+        }
+        drop(observers);
+        view.update_shimmer();
+        view.setNeedsDisplay();
+    }
+
+    pub(crate) fn update_shimmer(&self) {
+        let layers = self.ivars().shimmer_layer.borrow();
+        let Some((highlight, mask)) = layers.as_ref() else {
+            return;
+        };
+        let active = {
+            self.ivars().shimmer.get()
+                && self.window().is_some()
+                && !self.isHidden()
+                && !objc2_ui_kit::UIAccessibilityIsReduceMotionEnabled()
+                && !NSProcessInfo::processInfo().isLowPowerModeEnabled()
+                && objc2_ui_kit::UIApplication::sharedApplication(self.mtm()).applicationState()
+                    == objc2_ui_kit::UIApplicationState::Active
+        };
+        highlight.setHidden(!active);
+        if !active {
+            mask.removeAnimationForKey(ns_string!("shimmer"));
+        // SAFETY: the animation is only queried for its presence.
+        } else if unsafe { mask.animationForKey(ns_string!("shimmer")) }.is_none() {
+            let animation = CABasicAnimation::animationWithKeyPath(Some(ns_string!("position.x")));
+            let width = self.bounds().size.width;
+            // SAFETY: position.x takes NSNumber values.
+            unsafe {
+                animation.setFromValue(Some(&NSNumber::new_f64(-width / 6.0)));
+                animation.setToValue(Some(&NSNumber::new_f64(width * 7.0 / 6.0)));
+            }
+            animation.setDuration(nsh_core::shimmer::PERIOD.as_secs_f64());
+            animation.setRepeatCount(f32::INFINITY);
+            animation.setTimingFunction(Some(&CAMediaTimingFunction::functionWithName(
+                // SAFETY: immutable Core Animation constant.
+                unsafe { objc2_quartz_core::kCAMediaTimingFunctionLinear },
+            )));
+            mask.addAnimation_forKey(&animation, Some(ns_string!("shimmer")));
+        }
+    }
+
+    fn draw_shimmer(&self, text: &CoreTextLayout, content: Bounds<Points>) {
+        if !self.ivars().shimmer.get() {
+            if let Some((layer, _)) = self.ivars().shimmer_layer.borrow_mut().take() {
+                layer.removeFromSuperlayer();
+            }
+            return;
+        }
+        let bounds = self.bounds();
+        if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
+            return;
+        }
+        let renderer = objc2_ui_kit::UIGraphicsImageRenderer::initWithSize(
+            objc2_ui_kit::UIGraphicsImageRenderer::alloc(),
+            bounds.size,
+        );
+        let draw = block2::RcBlock::new(
+            |_: std::ptr::NonNull<objc2_ui_kit::UIGraphicsImageRendererContext>| {
+                // SAFETY: imageWithActions installs the current UIKit context;
+                // CoreText lines and their runs remain alive throughout the draw.
+                unsafe {
+                    let Some(cx) = UIGraphicsGetCurrentContext() else {
+                        return;
+                    };
+                    let c = Some(&*cx);
+                    CGContext::set_text_matrix(
+                        c,
+                        CGAffineTransform {
+                            a: 1.0,
+                            b: 0.0,
+                            c: 0.0,
+                            d: 1.0,
+                            tx: 0.0,
+                            ty: 0.0,
+                        },
+                    );
+                    CGContext::translate_ctm(
+                        c,
+                        content.origin.x.0 as CGFloat,
+                        (content.origin.y.0 + content.size.height.0) as CGFloat,
+                    );
+                    CGContext::scale_ctm(c, 1.0, -1.0);
+                    CGContext::begin_transparency_layer(c, None);
+                    for line in &text.lines {
+                        CGContext::set_text_position(c, line.origin.x, line.origin.y);
+                        line.line.draw(&cx);
+                        if text.strikethrough {
+                            draw_decorations(&cx, line);
+                        }
+                    }
+                    CGContext::set_blend_mode(c, objc2_core_graphics::CGBlendMode::SourceIn);
+                    CGContext::set_fill_color_with_color(
+                        c,
+                        crate::decor::cg_color(self.ivars().shimmer_color.get()).as_deref(),
+                    );
+                    CGContext::fill_rect(c, CGContext::clip_bounding_box(c));
+                    CGContext::end_transparency_layer(c);
+                }
+            },
+        );
+        // SAFETY: the drawing block is synchronous; contents accepts CGImage.
+        unsafe {
+            let image: Retained<objc2_ui_kit::UIImage> = msg_send![&*renderer, imageWithActions: &*draw];
+            if let Some(image) = image.CGImage() {
+                objc2_quartz_core::CATransaction::begin();
+                objc2_quartz_core::CATransaction::setDisableActions(true);
+                let mut layers = self.ivars().shimmer_layer.borrow_mut();
+                let (highlight, mask) = layers.get_or_insert_with(|| {
+                    let highlight = CALayer::new();
+                    let mask = CAGradientLayer::new();
+                    let colors = [
+                        UIColor::clearColor().CGColor(),
+                        UIColor::whiteColor().CGColor(),
+                        UIColor::clearColor().CGColor(),
+                    ];
+                    let colors: Vec<Retained<AnyObject>> = colors
+                        .into_iter()
+                        .map(|c| Retained::cast_unchecked(c))
+                        .collect();
+                    mask.setColors(Some(&NSArray::from_retained_slice(&colors)));
+                    mask.setStartPoint(CGPoint::new(0.0, 0.5));
+                    mask.setEndPoint(CGPoint::new(1.0, 0.5));
+                    highlight.setMask(Some(&mask));
+                    self.layer().addSublayer(&highlight);
+                    (highlight, mask)
+                });
+                highlight.setFrame(bounds);
+                highlight.setContentsScale(self.contentScaleFactor());
+                highlight.setContents(Some(&*(&*image as *const _ as *const AnyObject)));
+                let frame = CGRect::new(
+                    CGPoint::new(-bounds.size.width / 3.0, 0.0),
+                    CGSize::new(bounds.size.width / 3.0, bounds.size.height),
+                );
+                if mask.frame() != frame {
+                    mask.removeAnimationForKey(ns_string!("shimmer"));
+                    mask.setFrame(frame);
+                }
+                objc2_quartz_core::CATransaction::commit();
+            }
+        }
+        self.update_shimmer();
     }
 
     /// Draws the whole text in `color` (an animated `color`), or in its

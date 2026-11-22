@@ -3191,10 +3191,12 @@ impl Mounter {
         let Some(s) = self.slot_mut(id) else { return };
         s.long_press_delay = props.long_press_delay;
         if let Native::Text(view) = &s.native {
-            view.ivars().shimmer.set(props.text_shimmer);
-            view.ivars()
-                .shimmer_color
-                .set(props.text_shimmer_color.unwrap_or(Color::BLACK));
+            let changed = view.ivars().shimmer.replace(props.text_shimmer) != props.text_shimmer;
+            let color = props.text_shimmer_color.unwrap_or(Color::BLACK);
+            let color_changed = view.ivars().shimmer_color.replace(color) != color;
+            if changed || (props.text_shimmer && color_changed) {
+                TextView::configure_shimmer(view);
+            }
         }
         s.pan_scroll_handoff = props.pan_scroll_handoff;
         if let Some(pan) = &s.gestures.pan {
