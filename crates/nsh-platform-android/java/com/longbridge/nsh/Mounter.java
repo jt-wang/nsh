@@ -1376,6 +1376,12 @@ final class Mounter {
     private void viewProps(ByteBuffer b, Object[] objects) {
         int id = b.getInt();
         View v = views.get(id);
+        boolean shimmer = b.getInt() != 0;
+        int shimmerColor = b.getInt();
+        if (v instanceof TextBox) {
+            ((TextBox) v).shimmer = shimmer;
+            ((TextBox) v).shimmerColor = shimmerColor;
+        }
         int pointerEvents = b.getInt();
         float[] slop = {b.getFloat() * density, b.getFloat() * density, b.getFloat() * density, b.getFloat() * density};
         A11y a = new A11y(this, id);

@@ -1768,6 +1768,8 @@ class Player {
     const el = this.view(id);
     if (!el) return;
     el._props = props;
+    el._shimmer = el._kind === "text" && !!props.shimmer;
+    el._shimmerColor = el._kind === "text" ? props.shimmerColor : undefined;
     if (props.testID) el.dataset.testid = props.testID;
     else delete el.dataset.testid;
     const pe = props.pointerEvents;

@@ -995,6 +995,8 @@ fn screen_config(e: &mut Encoded, c: &ScreenConfig) {
 }
 
 fn view_props(e: &mut Encoded, p: &ViewProps) {
+    e.bool(p.text_shimmer);
+    e.int(argb(p.text_shimmer_color.unwrap_or(Color::BLACK)));
     e.int(match p.pointer_events {
         PointerEvents::Auto => 0,
         PointerEvents::None => 1,

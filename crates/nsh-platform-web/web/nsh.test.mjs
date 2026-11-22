@@ -12,6 +12,29 @@ const { Player } = await import(
   `data:text/javascript,${encodeURIComponent(`${source}\nexport { Player };`)}`
 );
 
+test("text props store and clear shimmer without glyph updates", () => {
+  const el = {
+    _kind: "text",
+    dataset: {},
+    classList: { toggle() {} },
+  };
+  const player = Object.create(Player.prototype);
+  player.view = () => el;
+  player.updateFocusable = () => {};
+  player.updateTouchAction = () => {};
+  for (const props of [{}, { shimmer: true }, { shimmer: false }, { shimmer: true }, {}]) {
+    player.op_vp(["vp", 2, props]);
+    assert.equal(el._shimmer, !!props.shimmer);
+  }
+  player.op_vp(["vp", 2, { shimmer: true, shimmerColor: "#123456" }]);
+  assert.equal(el._shimmerColor, "#123456");
+  player.op_vp(["vp", 2, {}]);
+  assert.equal(el._shimmerColor, undefined);
+  el._kind = "view";
+  player.op_vp(["vp", 2, { shimmer: true }]);
+  assert.equal(el._shimmer, false);
+});
+
 /** A player on a fake engine; `sent` holds `[name, payload]` of the events it got. */
 function fakePlayer(options = {}) {
   const sent = [];

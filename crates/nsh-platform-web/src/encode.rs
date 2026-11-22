@@ -801,6 +801,12 @@ fn props_json(p: &ViewProps) -> String {
     if p.selectable_view {
         s.push_str(",\"selectableView\":true");
     }
+    if p.text_shimmer {
+        s.push_str(",\"shimmer\":true");
+    }
+    if let Some(color) = p.text_shimmer_color {
+        let _ = write!(s, ",\"shimmerColor\":\"{}\"", css_color(color));
+    }
     s.push('}');
     s
 }

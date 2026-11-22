@@ -1,5 +1,25 @@
 # Text
 
+## Shimmer
+
+`<Text shimmer>` (Rust: `text("…").shimmer(true)`) opts the whole text block into a native,
+linear, repeating left-to-right highlight sweep. Base glyphs keep their normal color and opacity;
+the soft-edged band blends in `shimmerColor` at coverage 0 → 1 → 0. The default is off; removing the
+prop turns it off. A nested Text is a span: its own `shimmer` has no effect. Changing the flag is
+paint-only and reuses the text's measurements and final layout, including fitted font sizes.
+
+`shimmerColor` accepts any NSH color (Rust: `.shimmer_color(color)`). When unset, the core mixes
+the text's color 45% toward white if its HSL lightness is at least 50%, otherwise toward black,
+preserving its alpha. The resolved color is sent to each platform, not computed per frame.
+
+`nsh_core::shimmer` defines the shared 2.8-second period, one-third-width band and coverage.
+Reduced motion or OS low-power mode leaves only the static base color, without a band;
+backgrounded, offscreen or detached text pauses. Platform drawing and event-driven low-power
+and lifecycle handling are being added separately; the current plumbing only stores the
+opt-in flag and resolved highlight color on iOS, Android and web.
+
+## Text behavior
+
 - **Text**: `<Text numberOfLines ellipsizeMode="tail|head|middle|clip">`; styles `fontFamily` (system or imported fonts:
   `import Inter from "./Inter.ttf"` evaluates to the family name and registers the font before the first frame), `fontWeight`,
   `fontStyle`, `letterSpacing`, `textDecorationLine` + `textDecorationColor`, `textTransform`, `lineHeight`, `textAlign`,

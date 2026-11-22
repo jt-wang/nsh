@@ -2157,6 +2157,12 @@ pub enum Prop {
     /// (`numberOfLines`) and box.
     #[prop(js = "adjustsFontSizeToFit", on = TEXT)]
     AdjustsFontSizeToFit(bool),
+    /// `shimmer`: a native highlight band over the whole text block. Ignored on nested spans.
+    #[prop(js = "shimmer", on = TEXT)]
+    Shimmer(bool),
+    /// `shimmerColor`: the band's color; unset derives it from the text's color.
+    #[prop(js = "shimmerColor", on = TEXT)]
+    ShimmerColor(Option<Color>),
     /// `minimumFontScale`: how far `adjustsFontSizeToFit` shrinks at most (0..1).
     #[prop(js = "minimumFontScale", min = 0, max = 1, on = TEXT)]
     MinimumFontScale(f32),

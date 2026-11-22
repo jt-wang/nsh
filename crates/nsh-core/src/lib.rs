@@ -46,6 +46,7 @@ pub mod runtime;
 pub mod scroll;
 pub mod selection;
 pub mod shape;
+pub mod shimmer;
 pub mod storage;
 mod style;
 #[cfg(feature = "svg")]

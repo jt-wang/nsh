@@ -17,6 +17,8 @@ final class TextBox extends android.view.ViewGroup implements Node {
     final Decor decor = new Decor();
     final int id;
     boolean clip;
+    boolean shimmer;
+    int shimmerColor;
     /** Accessibility from the app's properties, if any. */
     A11y a11y;
     private Layout layout;

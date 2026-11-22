@@ -1017,6 +1017,37 @@ mod tests {
         cx.with(|cx| f(Js(cx.eval(format!("({source})")).unwrap())))
     }
 
+    #[test]
+    fn shimmer_host_prop_decodes_and_resets() {
+        for (source, expected) in [
+            ("true", Some(Prop::Shimmer(true))),
+            ("false", Some(Prop::Shimmer(false))),
+            ("undefined", Some(Prop::Shimmer(false))),
+            ("null", Some(Prop::Shimmer(false))),
+            ("'invalid'", Some(Prop::Shimmer(false))),
+        ] {
+            with_value(source, |value| {
+                let mut cx = HostCx::for_element(nsh_core::Tag::Text);
+                assert_eq!(Prop::decode("shimmer", &value, &mut cx), Some(expected));
+            });
+        }
+        for (source, expected) in [
+            ("'#123456'", Some(Color(0x123456ff))),
+            ("'hsl(0 100% 50%)'", Some(Color(0xff0000ff))),
+            ("undefined", None),
+            ("null", None),
+            ("'invalid'", None),
+        ] {
+            with_value(source, |value| {
+                let mut cx = HostCx::for_element(nsh_core::Tag::Text);
+                assert_eq!(
+                    Prop::decode("shimmerColor", &value, &mut cx),
+                    Some(Some(Prop::ShimmerColor(expected)))
+                );
+            });
+        }
+    }
+
     fn layout(source: &str) -> LayoutAnimation {
         with_value(source, |v| {
             <LayoutAnimation as HostValue>::decode(&v, &mut HostCx::default()).unwrap()

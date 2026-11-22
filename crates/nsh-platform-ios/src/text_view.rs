@@ -173,6 +173,9 @@ pub(crate) struct TextViewIvars {
     pub(crate) layout: RefCell<Option<(TextLayout, Bounds<Points>)>>,
     /// The content, for accessibility and the block's shadow.
     pub(crate) text: RefCell<Option<Arc<AttributedText>>>,
+    /// The block's native shimmer, independent of its typeset layout.
+    pub(crate) shimmer: std::cell::Cell<bool>,
+    pub(crate) shimmer_color: std::cell::Cell<nsh_core::Color>,
     /// `selectable`: the range selection (`text_selection.rs`).
     pub(crate) selection: Selection,
     /// An animated `color` (`0xRRGGBBAA`): the whole text is drawn in it.

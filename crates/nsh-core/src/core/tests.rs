@@ -17877,6 +17877,325 @@ fn audio_session_reaches_the_video() {
 }
 
 #[test]
+fn shimmer_toggles_reuse_text_layouts() {
+    use crate::js::host::HostProps;
+
+    for (content, fit, hidden) in [
+        ("hello", false, false),
+        ("", false, false),
+        ("long enough to shrink", true, false),
+        ("hidden", false, true),
+    ] {
+        let mut c = core();
+        apply(
+            &mut c,
+            vec![
+                Op::Create {
+                    id: 2,
+                    tag: Tag::Text,
+                },
+                Op::CreateText {
+                    id: 4,
+                    text: content.into(),
+                },
+                Op::Insert {
+                    parent: 2,
+                    child: 4,
+                    before: None,
+                },
+                Op::Insert {
+                    parent: ROOT_ID,
+                    child: 2,
+                    before: None,
+                },
+                Op::SetProp {
+                    id: 2,
+                    prop: Prop::AdjustsFontSizeToFit(fit),
+                },
+                style_op(
+                    2,
+                    &[
+                        ("width", StyleValue::Number(30.0)),
+                        ("height", StyleValue::Number(16.0)),
+                    ],
+                ),
+            ],
+        );
+        if hidden {
+            apply(
+                &mut c,
+                vec![style_op(2, &[("display", StyleValue::Str("none"))])],
+            );
+        }
+        let batch = c.commit().unwrap();
+        let (old_text, old_layout) = batch
+            .items
+            .iter()
+            .find_map(|i| match i {
+                MountItem::Text {
+                    id: 2,
+                    text,
+                    layout,
+                    ..
+                } => Some((text.clone(), layout.clone())),
+                _ => None,
+            })
+            .unwrap();
+        assert!(!ViewProps::default().text_shimmer);
+        assert!(
+            !batch
+                .items
+                .iter()
+                .any(|i| matches!(i, MountItem::ViewProps { id: 2, .. }))
+        );
+        let layout_id = c.nodes[c.key(2).unwrap() as usize].layout.unwrap();
+        let cache = c.text_cx(layout_id).cache;
+        let counts = (
+            c.text_engine.prepares.get(),
+            c.text_engine.layouts.get(),
+            c.text_engine.measures.get(),
+        );
+        for prop in [
+            Prop::Shimmer(true),
+            Prop::Shimmer(false),
+            Prop::Shimmer(true),
+            Prop::Shimmer(true).reset().unwrap(),
+        ] {
+            let Prop::Shimmer(expected) = prop else {
+                panic!("shimmer reset")
+            };
+            apply(&mut c, vec![Op::SetProp { id: 2, prop }]);
+            let batch = c.commit().unwrap();
+            assert_eq!(batch.items.len(), 1, "paint-only update");
+            let MountItem::ViewProps { id: 2, props } = &batch.items[0] else {
+                panic!("paint update")
+            };
+            assert_eq!(props.text_shimmer, expected);
+            let cx = c.text_cx(layout_id);
+            let laid = cx.laid_out.as_ref().unwrap();
+            assert!(Arc::ptr_eq(&old_text, &laid.text));
+            assert!(Arc::ptr_eq(&old_layout.0, &laid.layout.0));
+            assert_eq!(cx.cache, cache);
+            assert_eq!(
+                (
+                    c.text_engine.prepares.get(),
+                    c.text_engine.layouts.get(),
+                    c.text_engine.measures.get()
+                ),
+                counts
+            );
+            assert!(c.commit().is_none());
+        }
+        apply(
+            &mut c,
+            vec![Op::SetProp {
+                id: 2,
+                prop: Prop::Shimmer(false),
+            }],
+        );
+        assert!(c.commit().is_none(), "unchanged prop does not mount");
+        for color in [Some(Color(0x123456ff)), None] {
+            apply(
+                &mut c,
+                vec![Op::SetProp {
+                    id: 2,
+                    prop: Prop::ShimmerColor(color),
+                }],
+            );
+            let batch = c.commit().unwrap();
+            assert!(
+                matches!(&batch.items[..], [MountItem::ViewProps { id: 2, props }]
+                if props.text_shimmer_color == Some(color.unwrap_or(Color::BLACK)))
+            );
+            assert_eq!(c.text_cx(layout_id).cache, cache);
+            assert_eq!(
+                (
+                    c.text_engine.prepares.get(),
+                    c.text_engine.layouts.get(),
+                    c.text_engine.measures.get()
+                ),
+                counts
+            );
+        }
+    }
+}
+
+#[test]
+fn shimmer_on_nested_spans_has_no_effect() {
+    let mut c = core();
+    apply(
+        &mut c,
+        vec![
+            Op::Create {
+                id: 2,
+                tag: Tag::Text,
+            },
+            Op::Create {
+                id: 4,
+                tag: Tag::Text,
+            },
+            Op::CreateText {
+                id: 6,
+                text: "nested".into(),
+            },
+            Op::SetProp {
+                id: 4,
+                prop: Prop::Shimmer(true),
+            },
+            Op::Insert {
+                parent: 4,
+                child: 6,
+                before: None,
+            },
+            Op::Insert {
+                parent: 2,
+                child: 4,
+                before: None,
+            },
+            Op::Insert {
+                parent: ROOT_ID,
+                child: 2,
+                before: None,
+            },
+        ],
+    );
+    let batch = c.commit().unwrap();
+    assert!(
+        !batch
+            .items
+            .iter()
+            .any(|i| matches!(i, MountItem::ViewProps { .. }))
+    );
+    let counts = (
+        c.text_engine.prepares.get(),
+        c.text_engine.layouts.get(),
+        c.text_engine.measures.get(),
+    );
+    apply(
+        &mut c,
+        vec![Op::SetProp {
+            id: 4,
+            prop: Prop::Shimmer(false),
+        }],
+    );
+    assert!(c.commit().is_none());
+    assert_eq!(
+        (
+            c.text_engine.prepares.get(),
+            c.text_engine.layouts.get(),
+            c.text_engine.measures.get()
+        ),
+        counts
+    );
+    apply(
+        &mut c,
+        vec![Op::SetProp {
+            id: 2,
+            prop: Prop::Shimmer(true),
+        }],
+    );
+    let batch = c.commit().unwrap();
+    assert!(
+        matches!(&batch.items[..], [MountItem::ViewProps { id: 2, props }] if props.text_shimmer)
+    );
+}
+
+#[test]
+fn shimmer_host_prop_is_text_only() {
+    use crate::js::host::{HostProps, on};
+
+    let mut types = crate::element::TsTypes::default();
+    let mut specs = Vec::new();
+    Prop::specs(&mut types, &mut specs);
+    let spec = specs.iter().find(|s| s.name == "shimmer").unwrap();
+    assert_eq!(spec.on, on::TEXT);
+    assert!(crate::js::host::declarations().contains("shimmer?: boolean"));
+    assert_eq!(Prop::Shimmer(true).reset(), Some(Prop::Shimmer(false)));
+    let spec = specs.iter().find(|s| s.name == "shimmerColor").unwrap();
+    assert_eq!(spec.on, on::TEXT);
+    assert!(crate::js::host::declarations().contains("shimmerColor?: Color"));
+    assert_eq!(
+        Prop::ShimmerColor(Some(Color::BLACK)).reset(),
+        Some(Prop::ShimmerColor(None))
+    );
+}
+
+#[test]
+fn shimmer_highlight_resolves_inherited_color_and_override() {
+    let mut c = core();
+    apply(
+        &mut c,
+        vec![
+            Op::Create {
+                id: 2,
+                tag: Tag::Text,
+            },
+            Op::CreateText {
+                id: 4,
+                text: "highlight".into(),
+            },
+            Op::Insert {
+                parent: 2,
+                child: 4,
+                before: None,
+            },
+            Op::Insert {
+                parent: ROOT_ID,
+                child: 2,
+                before: None,
+            },
+            Op::SetProp {
+                id: 2,
+                prop: Prop::Shimmer(true),
+            },
+            style_op(ROOT_ID, &[("color", StyleValue::Str("#929292"))]),
+        ],
+    );
+    let batch = c.commit().unwrap();
+    assert!(
+        batch
+            .items
+            .iter()
+            .any(|i| matches!(i, MountItem::ViewProps { id: 2, props }
+        if props.text_shimmer && props.text_shimmer_color == Some(Color(0xc3c3c3ff))))
+    );
+    for (op, expected) in [
+        (
+            style_op(ROOT_ID, &[("color", StyleValue::Str("#666666"))]),
+            Color(0x383838ff),
+        ),
+        (
+            Op::SetProp {
+                id: 2,
+                prop: Prop::ShimmerColor(Some(Color(0x123456ff))),
+            },
+            Color(0x123456ff),
+        ),
+        (
+            Op::SetProp {
+                id: 2,
+                prop: Prop::ShimmerColor(None),
+            },
+            Color(0x383838ff),
+        ),
+        (
+            style_op(2, &[("color", StyleValue::Str("#929292"))]),
+            Color(0xc3c3c3ff),
+        ),
+    ] {
+        apply(&mut c, vec![op]);
+        let batch = c.commit().unwrap();
+        assert!(
+            batch
+                .items
+                .iter()
+                .any(|i| matches!(i, MountItem::ViewProps { id: 2, props }
+            if props.text_shimmer_color == Some(expected)))
+        );
+    }
+}
+
+#[test]
 fn span_test_ids_reuse_fitted_and_hidden_layouts() {
     for (fit, hidden) in [(true, false), (false, true)] {
         let mut c = core();
