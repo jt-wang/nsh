@@ -18157,12 +18157,12 @@ fn shimmer_highlight_resolves_inherited_color_and_override() {
             .items
             .iter()
             .any(|i| matches!(i, MountItem::ViewProps { id: 2, props }
-        if props.text_shimmer && props.text_shimmer_color == Some(Color(0xc3c3c3ff))))
+        if props.text_shimmer && props.text_shimmer_color == Some(Color(0xb8b8b8ff))))
     );
     for (op, expected) in [
         (
             style_op(ROOT_ID, &[("color", StyleValue::Str("#666666"))]),
-            Color(0x383838ff),
+            Color(0x424242ff),
         ),
         (
             Op::SetProp {
@@ -18176,11 +18176,11 @@ fn shimmer_highlight_resolves_inherited_color_and_override() {
                 id: 2,
                 prop: Prop::ShimmerColor(None),
             },
-            Color(0x383838ff),
+            Color(0x424242ff),
         ),
         (
             style_op(2, &[("color", StyleValue::Str("#929292"))]),
-            Color(0xc3c3c3ff),
+            Color(0xb8b8b8ff),
         ),
     ] {
         apply(&mut c, vec![op]);

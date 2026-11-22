@@ -11,7 +11,7 @@ pub const BAND_WIDTH: Percentage = Percentage(1.0 / 3.0);
 /// Highlight coverage at the leading edge, center and trailing edge of the band.
 pub const COVERAGE: [Percentage; 3] = [Percentage(0.0), Percentage(1.0), Percentage(0.0)];
 /// Amount of white or black mixed into the base color for the default highlight.
-pub const DEFAULT_MIX: Percentage = Percentage(0.45);
+pub const DEFAULT_MIX: Percentage = Percentage(0.35);
 
 /// Resolves a default highlight in sRGB, preserving the base color's alpha.
 pub fn highlight(base: Color) -> Color {
@@ -30,13 +30,13 @@ mod tests {
     #[test]
     fn highlight_follows_lightness_and_preserves_alpha() {
         for (base, expected) in [
-            (0x929292ff, 0xc3c3c3ff),
-            (0x666666ff, 0x383838ff),
-            (0x808080ff, 0xb9b9b9ff),
-            (0x7f7f7fff, 0x464646ff),
+            (0x929292ff, 0xb8b8b8ff),
+            (0x666666ff, 0x424242ff),
+            (0x808080ff, 0xacacacff),
+            (0x7f7f7fff, 0x535353ff),
             (0xffffffff, 0xffffffff),
             (0x000000ff, 0x000000ff),
-            (0x92929280, 0xc3c3c380),
+            (0x92929280, 0xb8b8b880),
             (0x00000000, 0x00000000),
         ] {
             assert_eq!(highlight(Color(base)), Color(expected));

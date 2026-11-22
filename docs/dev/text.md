@@ -9,8 +9,9 @@ prop turns it off. A nested Text is a span: its own `shimmer` has no effect. Cha
 paint-only and reuses the text's measurements and final layout, including fitted font sizes.
 
 `shimmerColor` accepts any NSH color (Rust: `.shimmer_color(color)`). When unset, the core mixes
-the text's color 45% toward white if its HSL lightness is at least 50%, otherwise toward black,
-preserving its alpha. The resolved color is sent to each platform, not computed per frame.
+the text's color 35% toward white if its HSL lightness is at least 50%, otherwise toward black,
+preserving its alpha (`#929292` → `#B8B8B8`, `#666666` → `#424242`). The resolved color is sent
+to each platform, not computed per frame.
 
 `nsh_core::shimmer` defines the shared 2.8-second period, one-third-width band and coverage.
 Reduced motion or OS low-power mode leaves only the static base color, without a band;
