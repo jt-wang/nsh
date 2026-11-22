@@ -57,7 +57,7 @@ final class ShimmerEnvironment {
     }
 
     private void read() {
-        animationsEnabled = ValueAnimator.areAnimatorsEnabled() && Settings.Global.getFloat(
+        animationsEnabled = (Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled()) && Settings.Global.getFloat(
                 context.getContentResolver(), Settings.Global.ANIMATOR_DURATION_SCALE, 1f) != 0;
         PowerManager manager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
         powerSave = manager != null && manager.isPowerSaveMode();

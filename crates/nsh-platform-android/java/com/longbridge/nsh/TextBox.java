@@ -313,7 +313,10 @@ final class TextBox extends android.view.ViewGroup implements Node {
             shimmerEnvironment.remove(this);
             shimmerEnvironment = null;
         }
-        if (shimmer != null) shimmer.setRunning(false);
+        if (shimmer != null) {
+            shimmer.observeVisibility(false);
+            shimmer.setRunning(false);
+        }
         clearSelection();
         if (mounter.selectedArea != null) mounter.selectedArea.textChanged(this);
         super.onDetachedFromWindow();
@@ -343,6 +346,7 @@ final class TextBox extends android.view.ViewGroup implements Node {
             if (shimmer == null) shimmer = new TextShimmer(this);
             shimmer.configure(color, period, width, start, center, end);
         } else if (shimmer != null) {
+            shimmer.observeVisibility(false);
             shimmer.setRunning(false);
             shimmer = null;
         }
@@ -360,17 +364,19 @@ final class TextBox extends android.view.ViewGroup implements Node {
             shimmerEnvironment = null;
         }
         if (shimmer == null) return;
+        shimmer.observeVisibility(attached);
         boolean visible = shimmerVisible && isShown() && getWindowVisibility() == VISIBLE;
+        boolean inViewport = attached && shimmer.intersectsViewport();
         boolean animations = shimmerEnvironment != null && shimmerEnvironment.animationsEnabled;
         boolean powerSave = shimmerEnvironment != null && shimmerEnvironment.powerSave;
         boolean highContrast = shimmerEnvironment != null && shimmerEnvironment.highContrast;
-        boolean running = ShimmerMotion.canRun(true, attached, visible,
+        boolean running = ShimmerMotion.canRun(true, attached, visible, inViewport,
                 layout != null && layout.getText().length() > 0 && contentWidth > 0 && contentHeight > 0,
                 animations, powerSave, highContrast);
         if (running != shimmer.running() && android.util.Log.isLoggable("NshShimmer", android.util.Log.DEBUG)) {
             android.util.Log.d("NshShimmer", "view=" + id + " running=" + running + " attached=" + attached
                     + " visible=" + visible + " animations=" + animations + " powerSave=" + powerSave
-                    + " highContrast=" + highContrast);
+                    + " highContrast=" + highContrast + " inViewport=" + inViewport);
         }
         shimmer.setRunning(running);
     }
