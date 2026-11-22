@@ -37,7 +37,10 @@ view references and are removed when shimmer is disabled or the view is released
 Android draws a second glyph pass into a layer, repaints it with the highlight, and applies
 a reusable gradient mask with `DST_IN`. One view-owned `ValueAnimator` moves that mask;
 it does not rebuild the text layout. Attachment, aggregated visibility and window visibility
-gate the animator. A settings observer and power-save broadcast receiver shared per surface
+gate the animator. Scroll/global-layout listeners check the global visible rectangle,
+so attached overscan or ancestor-clipped text stops until it intersects the viewport again.
+These listeners are removed on detach or when shimmer is disabled. No polling is used.
+A settings observer and power-save broadcast receiver shared per surface
 stop it live for disabled animations or power save, leaving the base pass only. The same observer
 watches the secure `high_text_contrast_enabled` setting and stops the band for High contrast text.
 The observers exist only while shimmer text is attached.

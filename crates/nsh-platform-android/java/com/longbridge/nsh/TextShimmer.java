@@ -7,15 +7,18 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
+import android.graphics.Rect;
 import android.graphics.Shader;
 import android.text.Layout;
 import android.text.TextPaint;
-import android.view.View;
+import android.view.ViewTreeObserver;
 import android.view.animation.LinearInterpolator;
 
 /** A single mask in the whole text's coordinates, driven on the UI thread. */
-final class TextShimmer {
-    private final View view;
+final class TextShimmer implements ViewTreeObserver.OnScrollChangedListener, ViewTreeObserver.OnGlobalLayoutListener {
+    private final TextBox view;
+    private final Rect visibleBounds = new Rect();
+    private ViewTreeObserver visibilityTree;
     private final ValueAnimator animator = ValueAnimator.ofFloat(0, 1);
     private final Paint color = new Paint();
     private final Paint mask = new Paint();
@@ -27,7 +30,7 @@ final class TextShimmer {
     private float fraction, gradientWidth = -1;
     private boolean running;
 
-    TextShimmer(View view) {
+    TextShimmer(TextBox view) {
         this.view = view;
         color.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
         mask.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
@@ -53,6 +56,35 @@ final class TextShimmer {
 
     boolean running() {
         return running;
+    }
+
+    void observeVisibility(boolean attached) {
+        if (attached && visibilityTree == null) {
+            visibilityTree = view.getViewTreeObserver();
+            visibilityTree.addOnScrollChangedListener(this);
+            visibilityTree.addOnGlobalLayoutListener(this);
+        } else if (!attached && visibilityTree != null) {
+            ViewTreeObserver tree = visibilityTree.isAlive() ? visibilityTree : view.getViewTreeObserver();
+            if (tree.isAlive()) {
+                tree.removeOnScrollChangedListener(this);
+                tree.removeOnGlobalLayoutListener(this);
+            }
+            visibilityTree = null;
+        }
+    }
+
+    boolean intersectsViewport() {
+        return view.getGlobalVisibleRect(visibleBounds) && !visibleBounds.isEmpty();
+    }
+
+    @Override
+    public void onScrollChanged() {
+        view.updateShimmer();
+    }
+
+    @Override
+    public void onGlobalLayout() {
+        view.updateShimmer();
     }
 
     void setRunning(boolean running) {
