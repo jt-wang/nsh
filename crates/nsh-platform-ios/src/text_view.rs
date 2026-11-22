@@ -17,10 +17,10 @@ use objc2_core_foundation::{
 use objc2_core_graphics::{CGColor, CGContext};
 use objc2_core_text::{CTFont, CTRun, kCTFontAttributeName};
 use objc2_foundation::{
-    NSArray, NSAttributedStringKey, NSComparisonResult, NSDictionary, NSInteger, NSObject,
-    NSObjectProtocol, NSRange, NSString,
+    NSArray, NSAttributedStringKey, NSComparisonResult, NSDictionary, NSInteger,
+    NSNotificationCenter, NSNumber, NSObject, NSObjectProtocol, NSProcessInfo, NSRange, NSString,
+    ns_string,
 };
-use objc2_foundation::{NSNotificationCenter, NSNumber, NSProcessInfo, ns_string};
 use objc2_quartz_core::{
     CABasicAnimation, CAGradientLayer, CALayer, CAMediaTiming, CAMediaTimingFunction,
 };
@@ -716,7 +716,8 @@ impl TextView {
         );
         // SAFETY: the drawing block is synchronous; contents accepts CGImage.
         unsafe {
-            let image: Retained<objc2_ui_kit::UIImage> = msg_send![&*renderer, imageWithActions: &*draw];
+            let image: Retained<objc2_ui_kit::UIImage> =
+                msg_send![&*renderer, imageWithActions: &*draw];
             if let Some(image) = image.CGImage() {
                 objc2_quartz_core::CATransaction::begin();
                 objc2_quartz_core::CATransaction::setDisableActions(true);
