@@ -121,6 +121,12 @@ final class Mounter {
     final NshView host;
     final float density;
     final Context context;
+    private ShimmerEnvironment shimmerEnvironment;
+
+    ShimmerEnvironment shimmerEnvironment() {
+        if (shimmerEnvironment == null) shimmerEnvironment = new ShimmerEnvironment(context);
+        return shimmerEnvironment;
+    }
     final Images images;
     final SparseArray<View> views = new SparseArray<>();
     private final SparseArray<Dynamic> statics = new SparseArray<>();
@@ -665,6 +671,7 @@ final class Mounter {
         for (int i = 0; i < views.size(); i++) {
             View v = views.valueAt(i);
             if (v instanceof ComponentBox) ((ComponentBox) v).destroy();
+            if (v instanceof TextBox) ((TextBox) v).setShimmer(false, 0, 0, 0, 0, 0, 0);
         }
     }
 
@@ -1378,9 +1385,14 @@ final class Mounter {
         View v = views.get(id);
         boolean shimmer = b.getInt() != 0;
         int shimmerColor = b.getInt();
+        int shimmerPeriod = shimmer ? b.getInt() : 0;
+        float shimmerWidth = shimmer ? b.getFloat() : 0;
+        float shimmerStart = shimmer ? b.getFloat() : 0;
+        float shimmerCenter = shimmer ? b.getFloat() : 0;
+        float shimmerEnd = shimmer ? b.getFloat() : 0;
         if (v instanceof TextBox) {
-            ((TextBox) v).shimmer = shimmer;
-            ((TextBox) v).shimmerColor = shimmerColor;
+            ((TextBox) v).setShimmer(shimmer, shimmerColor, shimmerPeriod, shimmerWidth,
+                    shimmerStart, shimmerCenter, shimmerEnd);
         }
         int pointerEvents = b.getInt();
         float[] slop = {b.getFloat() * density, b.getFloat() * density, b.getFloat() * density, b.getFloat() * density};

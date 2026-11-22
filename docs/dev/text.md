@@ -14,20 +14,30 @@ preserving its alpha (`#929292` → `#B8B8B8`, `#666666` → `#424242`). The res
 to each platform, not computed per frame.
 
 `nsh_core::shimmer` defines the shared 2.8-second period, one-third-width band and coverage.
-Reduced motion, Increase Contrast (iOS) or OS low-power mode leaves only the static base color, without a band;
+Reduced motion, high contrast or OS low-power mode leaves only the static base color, without a band;
 backgrounded, offscreen or detached text pauses. The web draws an inert, aria-hidden copy of
 the positioned runs under one CSS gradient mask, animated by shared CSS keyframes. Reduced
-motion hides that copy; intersection and page visibility events pause its animation. Turning
+motion hides that copy; live CSS media queries also hide it for `forced-colors: active` or
+`prefers-contrast: more`. Intersection and page visibility events pause its animation. Turning
 shimmer off, removing the text or stopping the app releases its observer entries and copy.
+
 iOS renders a highlight-colored glyph image only when text is painted, leaving the base
 glyphs unchanged. A single Core Animation gradient mask sweeps across the entire block;
 there is no display link or per-frame application work. Reduce Motion, Increase Contrast
-(darker system colors) and Low Power Mode notifications hide the copy and remove its animation. Detaching or hiding the Text also
+(darker system colors) and Low Power Mode notifications hide the copy and remove its animation.
+Detaching or hiding the Text also
 removes it, and returning restarts it. Backgrounding explicitly removes the animation
 (`UIApplicationDidEnterBackgroundNotification`); becoming active re-adds it, so it cannot
 keep running in the render server while the app is backgrounded. Observer tokens use weak
 view references and are removed when shimmer is disabled or the view is released.
-Android drawing is being added separately.
+
+Android draws a second glyph pass into a layer, repaints it with the highlight, and applies
+a reusable gradient mask with `DST_IN`. One view-owned `ValueAnimator` moves that mask;
+it does not rebuild the text layout. Attachment, aggregated visibility and window visibility
+gate the animator. A settings observer and power-save broadcast receiver shared per surface
+stop it live for disabled animations or power save, leaving the base pass only. The same observer
+watches the secure `high_text_contrast_enabled` setting and stops the band for High contrast text.
+The observers exist only while shimmer text is attached.
 
 ## Text behavior
 

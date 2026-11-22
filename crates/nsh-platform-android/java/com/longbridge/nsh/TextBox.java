@@ -17,8 +17,9 @@ final class TextBox extends android.view.ViewGroup implements Node {
     final Decor decor = new Decor();
     final int id;
     boolean clip;
-    boolean shimmer;
-    int shimmerColor;
+    private TextShimmer shimmer;
+    private ShimmerEnvironment shimmerEnvironment;
+    private boolean shimmerVisible;
     /** Accessibility from the app's properties, if any. */
     A11y a11y;
     private Layout layout;
@@ -307,9 +308,71 @@ final class TextBox extends android.view.ViewGroup implements Node {
 
     @Override
     protected void onDetachedFromWindow() {
+        shimmerVisible = false;
+        if (shimmerEnvironment != null) {
+            shimmerEnvironment.remove(this);
+            shimmerEnvironment = null;
+        }
+        if (shimmer != null) shimmer.setRunning(false);
         clearSelection();
         if (mounter.selectedArea != null) mounter.selectedArea.textChanged(this);
         super.onDetachedFromWindow();
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        updateShimmer();
+    }
+
+    @Override
+    public void onVisibilityAggregated(boolean visible) {
+        super.onVisibilityAggregated(visible);
+        shimmerVisible = visible;
+        updateShimmer();
+    }
+
+    @Override
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        updateShimmer();
+    }
+
+    void setShimmer(boolean enabled, int color, int period, float width, float start, float center, float end) {
+        if (enabled) {
+            if (shimmer == null) shimmer = new TextShimmer(this);
+            shimmer.configure(color, period, width, start, center, end);
+        } else if (shimmer != null) {
+            shimmer.setRunning(false);
+            shimmer = null;
+        }
+        updateShimmer();
+        invalidate();
+    }
+
+    void updateShimmer() {
+        boolean attached = isAttachedToWindow();
+        if (shimmer != null && attached && shimmerEnvironment == null) {
+            shimmerEnvironment = mounter.shimmerEnvironment();
+            shimmerEnvironment.add(this);
+        } else if ((shimmer == null || !attached) && shimmerEnvironment != null) {
+            shimmerEnvironment.remove(this);
+            shimmerEnvironment = null;
+        }
+        if (shimmer == null) return;
+        boolean visible = shimmerVisible && isShown() && getWindowVisibility() == VISIBLE;
+        boolean animations = shimmerEnvironment != null && shimmerEnvironment.animationsEnabled;
+        boolean powerSave = shimmerEnvironment != null && shimmerEnvironment.powerSave;
+        boolean highContrast = shimmerEnvironment != null && shimmerEnvironment.highContrast;
+        boolean running = ShimmerMotion.canRun(true, attached, visible,
+                layout != null && layout.getText().length() > 0 && contentWidth > 0 && contentHeight > 0,
+                animations, powerSave, highContrast);
+        if (running != shimmer.running() && android.util.Log.isLoggable("NshShimmer", android.util.Log.DEBUG)) {
+            android.util.Log.d("NshShimmer", "view=" + id + " running=" + running + " attached=" + attached
+                    + " visible=" + visible + " animations=" + animations + " powerSave=" + powerSave
+                    + " highContrast=" + highContrast);
+        }
+        shimmer.setRunning(running);
     }
 
     /** The selected text, without the placeholders of attachments. */
@@ -516,6 +579,7 @@ final class TextBox extends android.view.ViewGroup implements Node {
         this.contentY = y;
         this.contentWidth = width;
         this.contentHeight = height;
+        updateShimmer();
         invalidate();
     }
 
@@ -542,6 +606,7 @@ final class TextBox extends android.view.ViewGroup implements Node {
             layout.draw(canvas);
             drawDecorations(canvas);
         }
+        if (shimmer != null) shimmer.draw(canvas, layout, Math.max(contentWidth, layout.getWidth()), contentHeight);
         canvas.restore();
     }
 

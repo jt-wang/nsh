@@ -106,6 +106,9 @@ const KEYFRAMES = `
   text-shadow: none !important; text-decoration: none !important;
 }
 .nsh-reduce .nsh-shimmer { display: none !important; }
+@media (forced-colors: active), (prefers-contrast: more) {
+  .nsh-shimmer { display: none !important; }
+}
 /* Reduced motion: style transitions and keyframes do not run, as on the
    native backends. */
 .nsh-reduce .nsh-v { transition: none !important; animation: none !important; }

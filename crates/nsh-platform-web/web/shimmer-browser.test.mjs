@@ -130,6 +130,17 @@ test("a single moving mask highlights positioned runs without changing base pixe
     await evaluate("root.classList.add('nsh-reduce')");
     const reduced = await screenshot();
     assert.deepEqual(reduced.data, base.data, "reduced motion shows base pixels only");
+    await evaluate("root.classList.remove('nsh-reduce')");
+    await call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-contrast", value: "more" }] });
+    assert.equal(await evaluate("matchMedia('(prefers-contrast: more)').matches"), true);
+    assert.equal(await evaluate("getComputedStyle(el._shimmerOverlay).display"), "none");
+    const highContrast = await screenshot();
+    assert.deepEqual(highContrast.data, base.data, "more contrast shows base pixels only");
+    await call("Emulation.setEmulatedMedia", { features: [{ name: "forced-colors", value: "active" }] });
+    assert.equal(await evaluate("matchMedia('(forced-colors: active)').matches"), true);
+    assert.equal(await evaluate("getComputedStyle(el._shimmerOverlay).display"), "none");
+    await call("Emulation.setEmulatedMedia", { features: [] });
+    assert.equal(await evaluate("getComputedStyle(el._shimmerOverlay).display"), "block", "media changes apply live");
     await evaluate("player.removeShimmer(el)");
     assert.equal(await evaluate("player.shimmerViews.size"), 0);
   } finally {
