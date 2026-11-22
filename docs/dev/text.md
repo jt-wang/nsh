@@ -15,9 +15,12 @@ to each platform, not computed per frame.
 
 `nsh_core::shimmer` defines the shared 2.8-second period, one-third-width band and coverage.
 Reduced motion or OS low-power mode leaves only the static base color, without a band;
-backgrounded, offscreen or detached text pauses. Platform drawing and event-driven low-power
-and lifecycle handling are being added separately; the current plumbing only stores the
-opt-in flag and resolved highlight color on iOS, Android and web.
+backgrounded, offscreen or detached text pauses. The web draws an inert, aria-hidden copy of
+the positioned runs under one CSS gradient mask, animated by shared CSS keyframes. Reduced
+motion hides that copy; intersection and page visibility events pause its animation. Turning
+shimmer off, removing the text or stopping the app releases its observer entries and copy.
+Native drawing and event-driven low-power and lifecycle handling are being added separately;
+iOS and Android currently store the opt-in flag and resolved highlight color.
 
 ## Text behavior
 

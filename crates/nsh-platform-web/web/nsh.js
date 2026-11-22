@@ -106,6 +106,19 @@ const KEYFRAMES = `
   50% { transform: translateY(0); animation-timing-function: cubic-bezier(0,0,0.2,1); }
 }
 @keyframes nsh-spinner { to { transform: rotate(360deg); } }
+@keyframes nsh-shimmer {
+  from { mask-position: var(--nsh-shimmer-start) 0; }
+  to { mask-position: var(--nsh-shimmer-end) 0; }
+}
+.nsh-shimmer {
+  position: absolute; inset: 0; pointer-events: none; user-select: none;
+  mask-repeat: no-repeat; animation: nsh-shimmer linear infinite;
+}
+.nsh-shimmer-run, .nsh-shimmer-run * {
+  color: var(--nsh-shimmer-color) !important; background: none !important;
+  text-shadow: none !important; text-decoration: none !important;
+}
+.nsh-reduce .nsh-shimmer { display: none !important; }
 /* Reduced motion: style transitions and keyframes do not run, as on the
    native backends. */
 .nsh-reduce .nsh-v { transition: none !important; animation: none !important; }
@@ -151,7 +164,7 @@ const KEYFRAMES = `
 .nsh-bar { position: sticky; left: 0; top: 0; width: 0; height: 0; z-index: 2147483000; pointer-events: none; }
 .nsh-bar > div { position: absolute; border-radius: 2px; background: rgba(0,0,0,.45); transition: opacity .3s; }
 .nsh-dark .nsh-bar > div { background: rgba(255,255,255,.55); }
-.nsh-run { position: absolute; white-space: pre; }
+.nsh-run, .nsh-shimmer-run { position: absolute; white-space: pre; }
 .nsh-run-bg { position: absolute; pointer-events: none; }
 .nsh-border { position: absolute; inset: 0; pointer-events: none; }
 /* The mounter's own styles: no element has an inline style but its frame
@@ -1433,6 +1446,7 @@ class Player {
     if (this.viewportDialogs) this.dialogs = [];
     this.viewportObserver?.disconnect();
     this.fileOperations.clear();
+    for (const el of [...this.shimmerViews ?? []]) this.removeShimmer(el);
     for (const id of [...this.requests.keys()]) this.fetchCancel(id);
     for (const id of [...this.websockets.keys()]) this.websocketCancel(id);
     clearTimeout(this.timer);
@@ -1763,6 +1777,7 @@ class Player {
     child._leftWith = null;
     const host = parent._layer ?? parent;
     host.insertBefore(child, before && before.parentNode === host ? before : null);
+    this.shimmerTree(child, true);
     if (parent._kind === "stack") {
       this.changedStacks.add(parent);
       this.stackChanged(parent, child);
@@ -1772,6 +1787,7 @@ class Player {
   op_r([, id]) {
     const el = this.view(id);
     if (!el) return;
+    this.shimmerTree(el, false);
     if (el._kind === "modal") {
       this.dismiss(el);
       return;
@@ -1803,6 +1819,7 @@ class Player {
   op_d([, id]) {
     const el = this.view(id);
     if (!el) return;
+    this.shimmerTree(el, false);
     this.views.delete(id);
     this.mouseTracked.delete(id);
     if (el._shader) this.op_sh([, id, null]);
@@ -1962,6 +1979,87 @@ class Player {
     swapClass(el, "_selection", this.styleClass(selection));
     el._textLabel = runs.map((r) => r[2]).join("");
     if (el._props?.label == null) el.setAttribute("aria-label", el._textLabel);
+    this.syncShimmer(el, true);
+  }
+
+  shimmerTree(el, mounted) {
+    if (!this.shimmerUsed) return;
+    for (const view of [el, ...el.querySelectorAll(".nsh-v")]) {
+      if (mounted) this.syncShimmer(view);
+      else this.removeShimmer(view);
+    }
+  }
+
+  syncShimmer(el, refresh = false) {
+    if (!el._shimmer || el._kind !== "text") {
+      this.removeShimmer(el);
+      return;
+    }
+    this.shimmerUsed = true;
+    const runs = [...el.querySelectorAll(":scope > .nsh-run")];
+    if (!runs.length) {
+      this.removeShimmer(el);
+      return;
+    }
+    if (!el._shimmerOverlay) {
+      const overlay = document.createElement("div");
+      overlay.className = "nsh-shimmer";
+      overlay.setAttribute("aria-hidden", "true");
+      overlay.inert = true;
+      el.append(overlay);
+      el._shimmerOverlay = overlay;
+      refresh = true;
+      if (!this.shimmerViews?.size) {
+        this.shimmerViews = new Set();
+        this.shimmerVisibility = () => {
+          for (const view of this.shimmerViews) this.shimmerMotion(view);
+        };
+        document.addEventListener("visibilitychange", this.shimmerVisibility);
+        if (typeof IntersectionObserver !== "undefined") {
+          this.shimmerObserver = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+              if (!this.shimmerViews.has(entry.target)) continue;
+              entry.target._shimmerVisible = entry.isIntersecting;
+              this.shimmerMotion(entry.target);
+            }
+          });
+        }
+      }
+      this.shimmerViews.add(el);
+      el._shimmerVisible = !this.shimmerObserver;
+      this.shimmerObserver?.observe(el);
+    }
+    const overlay = el._shimmerOverlay;
+    overlay.style.cssText = el._props?.shimmerPaint ?? "";
+    overlay.style.setProperty("--nsh-shimmer-color", el._shimmerColor);
+    if (refresh) overlay.replaceChildren(...runs.map((run) => {
+      const clone = run.cloneNode(true);
+      clone.classList.replace("nsh-run", "nsh-shimmer-run");
+      return clone;
+    }));
+    this.shimmerMotion(el);
+  }
+
+  shimmerMotion(el) {
+    const overlay = el._shimmerOverlay;
+    if (!overlay) return;
+    overlay.hidden = this.reduceMotion();
+    overlay.style.animationPlayState = document.hidden || !el.isConnected || !el._shimmerVisible || overlay.hidden
+      ? "paused" : "running";
+  }
+
+  removeShimmer(el) {
+    if (!el._shimmerOverlay) return;
+    el._shimmerOverlay.remove();
+    el._shimmerOverlay = null;
+    this.shimmerObserver?.unobserve(el);
+    this.shimmerViews.delete(el);
+    if (!this.shimmerViews.size) {
+      this.shimmerObserver?.disconnect();
+      this.shimmerObserver = null;
+      document.removeEventListener("visibilitychange", this.shimmerVisibility);
+      this.shimmerVisibility = null;
+    }
   }
 
   /**
@@ -2116,6 +2214,7 @@ class Player {
     el._props = props;
     el._shimmer = el._kind === "text" && !!props.shimmer;
     el._shimmerColor = el._kind === "text" ? props.shimmerColor : undefined;
+    this.syncShimmer(el);
     if (props.testID) el.dataset.testid = props.testID;
     else delete el.dataset.testid;
     const pe = props.pointerEvents;
@@ -5142,6 +5241,7 @@ class Player {
     this.root.classList.toggle("nsh-dark", this.shownDark);
     this.root.classList.toggle("nsh-desktop", this.desktopUI);
     this.root.classList.toggle("nsh-reduce", this.reduceMotion());
+    for (const el of this.shimmerViews ?? []) this.shimmerMotion(el);
   }
 
   /** The user asked for less motion (`Environment::reduce_motion`). */
