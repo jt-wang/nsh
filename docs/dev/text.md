@@ -14,15 +14,15 @@ preserving its alpha (`#929292` → `#B8B8B8`, `#666666` → `#424242`). The res
 to each platform, not computed per frame.
 
 `nsh_core::shimmer` defines the shared 2.8-second period, one-third-width band and coverage.
-Reduced motion or OS low-power mode leaves only the static base color, without a band;
+Reduced motion, Increase Contrast (iOS) or OS low-power mode leaves only the static base color, without a band;
 backgrounded, offscreen or detached text pauses. The web draws an inert, aria-hidden copy of
 the positioned runs under one CSS gradient mask, animated by shared CSS keyframes. Reduced
 motion hides that copy; intersection and page visibility events pause its animation. Turning
 shimmer off, removing the text or stopping the app releases its observer entries and copy.
 iOS renders a highlight-colored glyph image only when text is painted, leaving the base
 glyphs unchanged. A single Core Animation gradient mask sweeps across the entire block;
-there is no display link or per-frame application work. Reduce Motion and Low Power Mode
-notifications hide the copy and remove its animation. Detaching or hiding the Text also
+there is no display link or per-frame application work. Reduce Motion, Increase Contrast
+(darker system colors) and Low Power Mode notifications hide the copy and remove its animation. Detaching or hiding the Text also
 removes it, and returning restarts it. Backgrounding explicitly removes the animation
 (`UIApplicationDidEnterBackgroundNotification`); becoming active re-adds it, so it cannot
 keep running in the render server while the app is backgrounded. Observer tokens use weak
