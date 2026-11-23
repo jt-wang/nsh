@@ -8,6 +8,10 @@ export const EXCEPTION = 0xffffffff;
 // every value Rust holds, so one per call into Wasm made every signal read
 // cost as much as the app is large.
 const COLLECT_MS = 100;
+// Accounting runs on the browser's clock, not the app's manual test clock.
+const now = performance.now.bind(performance);
+const later = globalThis.setTimeout.bind(globalThis);
+const cancel = globalThis.clearTimeout.bind(globalThis);
 
 export class Values {
   constructor() {
@@ -96,8 +100,8 @@ export class Values {
   schedule(trace) {
     this.trace ??= trace;
     if (this.collectTimer) return;
-    const wait = Math.max(0, this.lastCollect + COLLECT_MS - performance.now());
-    this.collectTimer = setTimeout(() => {
+    const wait = Math.max(0, this.lastCollect + COLLECT_MS - now());
+    this.collectTimer = later(() => {
       this.collectTimer = 0;
       if (this.closed) return;
       if (this.depth > 0) return this.schedule(trace);
@@ -107,7 +111,7 @@ export class Values {
   // Conservative reference accounting: a value only Rust's references from
   // collectable peers hold is held weakly, through those peers.
   collect(trace) {
-    this.lastCollect = performance.now();
+    this.lastCollect = now();
     this.depth++;
     try {
       // Weak values are held through the mirrors this replaces.
@@ -188,7 +192,7 @@ export class Values {
   dispose() {
     if (this.closed) return;
     this.closed = true;
-    clearTimeout(this.collectTimer);
+    cancel(this.collectTimer);
     this.collectTimer = 0;
     this.slots.length = 0;
     this.freeSlots.length = 0;
