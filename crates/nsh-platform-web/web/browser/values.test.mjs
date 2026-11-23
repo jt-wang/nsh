@@ -1,7 +1,56 @@
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { Values, EXCEPTION } from "./values.js";
+
+test("accounting keeps the browser's timers and clock when the app installs a manual clock", async () => {
+  const pending = new Map();
+  let next = 0, time = 10, traces = 0;
+  const realm = {
+    performance: { now: () => time },
+    setTimeout: (callback, delay) => { pending.set(++next, { callback, delay }); return next; },
+    clearTimeout: id => pending.delete(id),
+  };
+  const source = await readFile(new URL("./values.js", import.meta.url), "utf8");
+  const RealmValues = runInNewContext(`${source.replace(/^export /gm, "")}\nValues`, realm);
+  const values = new RealmValues();
+  const manual = () => { throw new Error("accounting used the app's manual clock"); };
+  realm.setTimeout = realm.clearTimeout = realm.performance.now = manual;
+  const trace = () => { traces++; };
+  const object = {};
+  const id = values.put(object);
+  values.boundary(() => {}, trace);
+  values.boundary(() => {}, trace);
+  assert.equal(pending.size, 1);
+  assert.equal(pending.get(next).delay, 90);
+  const fire = () => {
+    const entry = pending.get(next);
+    pending.delete(next);
+    entry.callback();
+  };
+  time = 100;
+  values.depth = 1;
+  fire();
+  assert.equal(traces, 0);
+  assert.equal(pending.size, 1);
+  values.depth = 0;
+  fire();
+  assert.equal(traces, 1);
+  assert.equal(values.lastCollect, 100);
+  assert.equal(values.get(id), object);
+  values.release(id);
+  values.boundary(() => {}, trace);
+  time = 200;
+  fire();
+  assert.equal(values.retained, 0);
+  assert.equal(traces, 2);
+  assert.throws(() => values.boundary(() => { throw new Error("entry failed"); }, trace), /entry failed/);
+  assert.equal(values.depth, 0);
+  values.boundary(() => {}, trace);
+  values.dispose();
+  assert.equal(pending.size, 0);
+});
 
 test("owned handles keep identity and reject stale generations", () => {
   const values = new Values();
