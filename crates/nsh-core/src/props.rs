@@ -317,6 +317,10 @@ pub struct Ripple {
 /// Non-style properties of a view that only the platform needs.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ViewProps {
+    /// A native highlight sweep over a Text block; ignored on other views and nested spans.
+    pub text_shimmer: bool,
+    /// The highlight override in the core; resolved to a color when mounted on a Text block.
+    pub text_shimmer_color: Option<crate::Color>,
     /// Which touches the view and its subtree receive.
     pub pointer_events: PointerEvents,
     /// Extends the touch area beyond the view's bounds.

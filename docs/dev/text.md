@@ -1,5 +1,52 @@
 # Text
 
+## Shimmer
+
+`<Text shimmer>` (Rust: `text("…").shimmer(true)`) opts the whole text block into a native,
+linear, repeating left-to-right highlight sweep. Base glyphs keep their normal color and opacity;
+the soft-edged band blends in `shimmerColor` at coverage 0 → 1 → 0. The default is off; removing the
+prop turns it off. A nested Text is a span: its own `shimmer` has no effect. Changing the flag is
+paint-only and reuses the text's measurements and final layout, including fitted font sizes.
+
+`shimmerColor` accepts any NSH color (Rust: `.shimmer_color(color)`). When unset, the core mixes
+the text's color 35% toward white if its HSL lightness is at least 50%, otherwise toward black,
+preserving its alpha (`#929292` → `#B8B8B8`, `#666666` → `#424242`). The resolved color is sent
+to each platform, not computed per frame.
+
+`nsh_core::shimmer` defines the shared 2.8-second period, one-third-width band and coverage.
+Reduced motion, high contrast or OS low-power mode leaves only the static base color, without a band;
+backgrounded, offscreen or detached text pauses. The web draws an inert, aria-hidden copy of
+the positioned runs under one CSS gradient mask, animated by shared CSS keyframes. Reduced
+motion hides that copy; live CSS media queries also hide it for `forced-colors: active` or
+`prefers-contrast: more`. Intersection and page visibility events pause its animation. Turning
+shimmer off, removing the text or stopping the app releases its observer entries and copy.
+
+iOS renders a highlight-colored glyph image only when text is painted, leaving the base
+glyphs unchanged. A single Core Animation gradient mask sweeps across the entire block;
+there is no display link or per-frame application work. Reduce Motion, Increase Contrast
+(darker system colors) and Low Power Mode notifications hide the copy and remove its animation.
+Detaching, hiding or fully clipping the Text also removes it, and returning restarts it.
+Visibility intersects its window-space bounds with the window and every clipping ancestor;
+hidden or transparent ancestors suppress the band too. Layout and scroll delegate events
+recheck a weak registry of shimmer texts, including attached overscan rows, without polling.
+Backgrounding explicitly removes the animation
+(`UIApplicationDidEnterBackgroundNotification`); becoming active re-adds it, so it cannot
+keep running in the render server while the app is backgrounded. Observer tokens use weak
+view references and are removed when shimmer is disabled or the view is released.
+
+Android draws a second glyph pass into a layer, repaints it with the highlight, and applies
+a reusable gradient mask with `DST_IN`. One view-owned `ValueAnimator` moves that mask;
+it does not rebuild the text layout. Attachment, aggregated visibility and window visibility
+gate the animator. Scroll/global-layout listeners check the global visible rectangle,
+so attached overscan or ancestor-clipped text stops until it intersects the viewport again.
+These listeners are removed on detach or when shimmer is disabled. No polling is used.
+A settings observer and power-save broadcast receiver shared per surface
+stop it live for disabled animations or power save, leaving the base pass only. The same observer
+watches the secure `high_text_contrast_enabled` setting and stops the band for High contrast text.
+The observers exist only while shimmer text is attached.
+
+## Text behavior
+
 - **Text**: `<Text>`; styles `numberOfLines`, `textOverflow` (`ellipsis|clip|ellipsis-start|ellipsis-middle`: `EllipsizeMode`'s
   `Tail|Clip|Head|Middle`), `fontFamily` (system or imported fonts:
   `import Inter from "./Inter.ttf"` evaluates to the family name and registers the font before the first frame), `fontWeight`,

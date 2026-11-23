@@ -12,6 +12,126 @@ const { Player } = await import(
   `data:text/javascript,${encodeURIComponent(`${source}\nexport { Player };`)}`
 );
 
+test("text props store and clear shimmer without glyph updates", () => {
+  const el = {
+    _kind: "text",
+    dataset: {},
+    classList: { toggle() {} },
+  };
+  const player = Object.create(Player.prototype);
+  player.view = () => el;
+  player.updateFocusable = () => {};
+  player.updateTouchAction = () => {};
+  player.syncShimmer = () => {};
+  for (const props of [{}, { shimmer: true }, { shimmer: false }, { shimmer: true }, {}]) {
+    player.op_vp(["vp", 2, props]);
+    assert.equal(el._shimmer, !!props.shimmer);
+  }
+  player.op_vp(["vp", 2, { shimmer: true, shimmerColor: "#123456" }]);
+  assert.equal(el._shimmerColor, "#123456");
+  player.op_vp(["vp", 2, {}]);
+  assert.equal(el._shimmerColor, undefined);
+  el._kind = "view";
+  player.op_vp(["vp", 2, { shimmer: true }]);
+  assert.equal(el._shimmer, false);
+});
+
+test("shimmer shares one mask, pauses when hidden, and releases observers", () => {
+  const listeners = new Map();
+  const observed = new Set();
+  let intersection;
+  let disconnected = false;
+  const document = {
+    hidden: false,
+    createElement: () => ({
+      style: { setProperty(name, value) { this[name] = value; } },
+      setAttribute(name, value) { this[name] = value; },
+      replaceChildren(...children) { this.children = children; },
+      remove() { this.removed = true; },
+    }),
+    addEventListener: (name, callback) => listeners.set(name, callback),
+    removeEventListener: (name, callback) => {
+      assert.equal(listeners.get(name), callback);
+      listeners.delete(name);
+    },
+  };
+  globalThis.document = document;
+  globalThis.IntersectionObserver = class {
+    constructor(callback) { intersection = callback; }
+    observe(el) { observed.add(el); }
+    unobserve(el) { observed.delete(el); }
+    disconnect() { disconnected = true; }
+  };
+  try {
+    const runs = ["Working", "…"].map((textContent) => ({
+      textContent,
+      cloneNode: () => ({ textContent, classList: { replace() {} } }),
+    }));
+    const el = {
+      _kind: "text", _shimmer: true, _shimmerColor: "#b8b8b8", isConnected: true,
+      _props: { shimmerPaint: "animation-duration:2800ms" },
+      querySelectorAll: () => runs,
+      append(overlay) { this.overlay = overlay; },
+    };
+    const player = Object.create(Player.prototype);
+    let reduced = false;
+    player.reduceMotion = () => reduced;
+    player.syncShimmer(el);
+    const overlay = el.overlay;
+    assert.equal(overlay["aria-hidden"], "true");
+    assert.equal(overlay.inert, true);
+    assert.deepEqual(overlay.children.map((r) => r.textContent), ["Working", "…"]);
+    assert.equal(observed.size, 1);
+    assert.equal(overlay.style.animationPlayState, "paused", "wait for intersection");
+    intersection([{ target: el, isIntersecting: true }]);
+    assert.equal(overlay.style.animationPlayState, "running");
+    intersection([{ target: el, isIntersecting: false }]);
+    assert.equal(overlay.style.animationPlayState, "paused");
+    intersection([{ target: el, isIntersecting: true }]);
+    document.hidden = true;
+    listeners.get("visibilitychange")();
+    assert.equal(overlay.style.animationPlayState, "paused");
+    document.hidden = false;
+    listeners.get("visibilitychange")();
+    assert.equal(overlay.style.animationPlayState, "running");
+    reduced = true;
+    player.shimmerMotion(el);
+    assert.equal(overlay.hidden, true);
+    assert.equal(overlay.style.animationPlayState, "paused");
+    reduced = false;
+    player.shimmerMotion(el);
+    assert.equal(overlay.hidden, false);
+    el._shimmerColor = "#424242";
+    player.syncShimmer(el, true);
+    assert.equal(el.overlay, overlay, "content updates preserve the animation");
+    assert.equal(overlay.style["--nsh-shimmer-color"], "#424242");
+    el._shimmer = false;
+    player.syncShimmer(el);
+    assert.equal(overlay.removed, true);
+    assert.equal(observed.size, 0);
+    assert.equal(listeners.size, 0);
+    assert.equal(disconnected, true);
+    el._shimmer = true;
+    player.syncShimmer(el);
+    const mounted = el.overlay;
+    player.views = new Map([[2, el]]);
+    player.mouseTracked = new Set();
+    player.detach = () => {};
+    player.screenGone = () => {};
+    el.contains = () => false;
+    player.op_d(["d", 2]);
+    assert.equal(mounted.removed, true, "unmount removes the overlay");
+    assert.equal(observed.size, 0);
+    assert.equal(listeners.size, 0);
+    el.querySelectorAll = () => [];
+    player.syncShimmer(el);
+    assert.equal(el._shimmerOverlay, null, "empty text has no overlay");
+  } finally {
+    delete globalThis.document;
+    delete globalThis.IntersectionObserver;
+  }
+});
+
 /** A player on a fake engine; `sent` holds `[name, payload]` of the events it got. */
 function fakePlayer(options = {}) {
   const sent = [];

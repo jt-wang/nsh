@@ -2008,6 +2008,20 @@ fn span(mut el: ElNode) -> ElNode {
 }
 
 impl Text {
+    /// Sweeps a highlight band over this text block; ignored on nested spans.
+    pub fn shimmer(mut self, shimmer: bool) -> Self {
+        super::host::set(&mut self.0, Prop::Shimmer(shimmer));
+        self
+    }
+
+    /// The shimmer band's color; unset derives it from the text's color.
+    pub fn shimmer_color(mut self, color: impl IntoReactive<Hsla>) -> Self {
+        super::host::bind_prop(&mut self.0, color, |c: Hsla| {
+            Prop::ShimmerColor(Some(Color::from(c)))
+        });
+        self
+    }
+
     /// The highlight of its selection, when it is selectable.
     pub fn selection_color(mut self, color: impl IntoReactive<Hsla>) -> Self {
         super::host::bind_prop(&mut self.0, color, |c: Hsla| {

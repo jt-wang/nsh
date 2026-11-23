@@ -712,6 +712,16 @@ impl Node {
     /// screen readers skip a spare list cell.
     fn mounted_props(&self) -> Box<ViewProps> {
         let mut props = self.props.clone().unwrap_or_default();
+        if self.kind == Kind::Text {
+            props.text_shimmer_color = Some(props.text_shimmer_color.unwrap_or_else(|| {
+                crate::shimmer::highlight(
+                    self.text_style
+                        .color
+                        .or(self.inherited_color)
+                        .unwrap_or(Color::BLACK),
+                )
+            }));
+        }
         if props.pointer_events == crate::props::PointerEvents::Auto {
             props.pointer_events = self.class_pointer;
         }
@@ -2599,6 +2609,14 @@ impl<M: TextEngine> Core<M> {
             self.needs_layout = true;
         }
         let mut flags = 0;
+        if color_passed
+            && self.nodes[key as usize]
+                .props
+                .as_ref()
+                .is_some_and(|p| p.text_shimmer && p.text_shimmer_color.is_none())
+        {
+            flags |= dirty::VIEW_PROPS;
+        }
         if view_changed {
             flags |= dirty::VIEW;
             // A drawing filling with the view's background paints the new
@@ -3309,6 +3327,18 @@ impl<M: TextEngine> Core<M> {
                 if node.paragraph.selection_color != color {
                     node.paragraph.selection_color = color;
                     self.mark_text_block(key);
+                }
+            }
+            Prop::Shimmer(shimmer) => {
+                if node.props.as_ref().is_some_and(|p| p.text_shimmer) != shimmer {
+                    node.props.get_or_insert_default().text_shimmer = shimmer;
+                    flags |= dirty::VIEW_PROPS;
+                }
+            }
+            Prop::ShimmerColor(color) => {
+                if node.props.as_ref().and_then(|p| p.text_shimmer_color) != color {
+                    node.props.get_or_insert_default().text_shimmer_color = color;
+                    flags |= dirty::VIEW_PROPS;
                 }
             }
             Prop::AdjustsFontSizeToFit(_) | Prop::MinimumFontScale(_) => {

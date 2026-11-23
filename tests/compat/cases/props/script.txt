@@ -318,6 +318,15 @@ covers [styles] textOverflow
 covers [styles] userSelect
 covers [props] adjustsFontSizeToFit
 covers [props] minimumFontScale
+prop id:shimmer shimmer true
+prop id:shimmer-off shimmer false
+prop id:shimmer-off shimmerColor #123456
+tap id:shimmer-toggle
+prop id:shimmer shimmer false
+tap id:shimmer-toggle
+prop id:shimmer shimmer true
+covers [props] shimmer
+covers [props] shimmerColor
 # props-view-accessibility
 tap id:case-props-view-accessibility
 # for each view's accessibility.

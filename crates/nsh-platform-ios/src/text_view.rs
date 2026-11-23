@@ -5,8 +5,8 @@ use nsh_core::{
     transition::{Recolor, TextColor},
 };
 use objc2::{
-    DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send,
-    rc::Retained,
+    AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send,
+    rc::{Retained, Weak},
     runtime::{AnyObject, ProtocolObject, Sel},
     sel,
 };
@@ -17,8 +17,12 @@ use objc2_core_foundation::{
 use objc2_core_graphics::{CGColor, CGContext};
 use objc2_core_text::{CTFont, CTRun, kCTFontAttributeName};
 use objc2_foundation::{
-    NSArray, NSAttributedStringKey, NSComparisonResult, NSDictionary, NSInteger, NSObject,
-    NSObjectProtocol, NSRange, NSString,
+    NSArray, NSAttributedStringKey, NSComparisonResult, NSDictionary, NSInteger,
+    NSNotificationCenter, NSNumber, NSObject, NSObjectProtocol, NSProcessInfo, NSRange, NSString,
+    ns_string,
+};
+use objc2_quartz_core::{
+    CABasicAnimation, CAGradientLayer, CALayer, CAMediaTiming, CAMediaTimingFunction,
 };
 use objc2_ui_kit::{
     NSWritingDirection, UIAccessibilityTraitStaticText, UIAccessibilityTraits, UIColor,
@@ -32,6 +36,73 @@ use crate::{
     text::{CoreTextLayout, LaidLine, decoration_key, strikethrough_key, underline_key},
     text_selection::{self, Selection},
 };
+
+thread_local! {
+    static SHIMMER_VIEWS: RefCell<Vec<(usize, Weak<TextView>)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Rechecks only the shimmer texts under `scroll`, a scroll view whose bounds moved
+/// or a screen that finished moving in.
+pub(crate) fn recheck_shimmer_under(scroll: &UIView) {
+    SHIMMER_VIEWS.with(|registry| {
+        let mut registry = registry.borrow_mut();
+        if registry.is_empty() {
+            return;
+        }
+        let mut views = Vec::new();
+        registry.retain(|(_, weak)| {
+            let Some(view) = weak.load() else {
+                return false;
+            };
+            if view.isDescendantOfView(scroll) {
+                views.push(view);
+            }
+            true
+        });
+        drop(registry);
+        for view in views {
+            view.update_shimmer();
+        }
+    });
+}
+
+fn visible_intersection(a: CGRect, b: CGRect) -> Option<CGRect> {
+    let x = a.origin.x.max(b.origin.x);
+    let y = a.origin.y.max(b.origin.y);
+    let right = (a.origin.x + a.size.width).min(b.origin.x + b.size.width);
+    let bottom = (a.origin.y + a.size.height).min(b.origin.y + b.size.height);
+    (right > x && bottom > y)
+        .then(|| CGRect::new(CGPoint::new(x, y), CGSize::new(right - x, bottom - y)))
+}
+
+fn shimmer_debug(active: bool, view: &TextView) {
+    #[cfg(debug_assertions)]
+    {
+        use std::io::Write;
+        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *ENABLED.get_or_init(|| std::env::var_os("NSH_SHIMMER_DEBUG").is_some())
+            && let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(std::env::temp_dir().join("shim.log"))
+        {
+            let _ = writeln!(
+                file,
+                "shimmer anim {} {:p} w={} t={:?}",
+                if active { "on" } else { "off" },
+                view,
+                view.bounds().size.width,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis()
+                    % 100000
+            );
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    let _ = (active, view);
+}
 
 /// Draws the decoration lines CoreText does not: strikethroughs, and
 /// underlines with a style, thickness or offset (y-up text space).
@@ -176,6 +247,11 @@ pub(crate) struct TextViewIvars {
     pub(crate) layout: RefCell<Option<(TextLayout, Bounds<Points>)>>,
     /// The content, for accessibility and the block's shadow.
     pub(crate) text: RefCell<Option<Arc<AttributedText>>>,
+    /// The block's native shimmer, independent of its typeset layout.
+    pub(crate) shimmer: std::cell::Cell<bool>,
+    pub(crate) shimmer_color: std::cell::Cell<nsh_core::Color>,
+    shimmer_layer: RefCell<Option<(Retained<CALayer>, Retained<CAGradientLayer>)>>,
+    shimmer_observers: RefCell<Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>>,
     /// `selectable`: the range selection (`text_selection.rs`).
     pub(crate) selection: Selection,
     /// An animated `color` (`0xRRGGBBAA`): the whole text is drawn in it.
@@ -186,6 +262,19 @@ pub(crate) struct TextViewIvars {
     /// The part a selectable view selected (UTF-16 offsets) and its
     /// highlight (`selectable_view.rs`).
     area_highlight: std::cell::Cell<Option<((usize, usize), nsh_core::Color)>>,
+}
+
+impl Drop for TextViewIvars {
+    fn drop(&mut self) {
+        let key = self as *const Self as usize;
+        let _ = SHIMMER_VIEWS.try_with(|registry| {
+            registry.borrow_mut().retain(|(id, _)| *id != key);
+        });
+        for observer in self.shimmer_observers.get_mut().drain(..) {
+            // SAFETY: these are the tokens returned by NSNotificationCenter.
+            unsafe { NSNotificationCenter::defaultCenter().removeObserver(observer.as_ref()) };
+        }
+    }
 }
 
 define_class!(
@@ -231,6 +320,21 @@ define_class!(
             let _: () = unsafe { msg_send![super(self), didMoveToWindow] };
             // Into or out of a selectable view, which selects instead.
             self.update_own_selection();
+            self.update_shimmer();
+        }
+
+        #[unsafe(method(layoutSubviews))]
+        fn layout_subviews(&self) {
+            // SAFETY: calling UIView's layout implementation.
+            unsafe { let _: () = msg_send![super(self), layoutSubviews]; }
+            self.update_shimmer();
+        }
+
+        #[unsafe(method(setHidden:))]
+        fn set_hidden(&self, hidden: bool) {
+            // SAFETY: calling UIView's implementation.
+            unsafe { let _: () = msg_send![super(self), setHidden: hidden]; }
+            self.update_shimmer();
         }
 
         #[unsafe(method(canPerformAction:withSender:))]
@@ -357,6 +461,7 @@ define_class!(
                 CGContext::end_transparency_layer(c);
             }
             CGContext::restore_g_state(c);
+            self.draw_shimmer(text, *content);
         }
     }
 
@@ -550,6 +655,229 @@ impl TextView {
         view
     }
 
+    pub(crate) fn configure_shimmer(view: &Retained<Self>) {
+        let key = view.ivars() as *const TextViewIvars as usize;
+        SHIMMER_VIEWS.with(|registry| {
+            let mut registry = registry.borrow_mut();
+            registry.retain(|(id, weak)| *id != key && weak.load().is_some());
+            if view.ivars().shimmer.get() {
+                registry.push((key, Weak::from_retained(view)));
+            }
+        });
+        let mut observers = view.ivars().shimmer_observers.borrow_mut();
+        let center = NSNotificationCenter::defaultCenter();
+        if !view.ivars().shimmer.get() {
+            for observer in observers.drain(..) {
+                // SAFETY: tokens returned by this notification center.
+                unsafe { center.removeObserver(observer.as_ref()) };
+            }
+        } else if observers.is_empty() {
+            let weak = objc2::rc::Weak::from_retained(view);
+            let block = block2::RcBlock::new(
+                move |_: std::ptr::NonNull<objc2_foundation::NSNotification>| {
+                    if let Some(view) = weak.load() {
+                        view.update_shimmer();
+                    }
+                },
+            );
+            // SAFETY: immutable system notification names; the main queue serializes
+            // callbacks with UIKit and the weak reference does not retain the view.
+            unsafe {
+                for name in [
+                    objc2_ui_kit::UIAccessibilityReduceMotionStatusDidChangeNotification,
+                    objc2_ui_kit::UIAccessibilityDarkerSystemColorsStatusDidChangeNotification,
+                    objc2_foundation::NSProcessInfoPowerStateDidChangeNotification,
+                    objc2_ui_kit::UIApplicationDidEnterBackgroundNotification,
+                    objc2_ui_kit::UIApplicationDidBecomeActiveNotification,
+                ] {
+                    observers.push(center.addObserverForName_object_queue_usingBlock(
+                        Some(name),
+                        None,
+                        Some(&objc2_foundation::NSOperationQueue::mainQueue()),
+                        &block,
+                    ));
+                }
+            }
+        }
+        drop(observers);
+        view.update_shimmer();
+        view.setNeedsDisplay();
+    }
+
+    fn shimmer_visible(&self) -> bool {
+        let Some(window) = self.window() else {
+            return false;
+        };
+        let Some(mut visible) = visible_intersection(
+            self.convertRect_toView(self.bounds(), Some(&window)),
+            window.bounds(),
+        ) else {
+            return false;
+        };
+        if self.isHidden() || self.alpha() <= 0.0 {
+            return false;
+        }
+        let mut ancestor = self.superview();
+        while let Some(view) = ancestor {
+            if view.isHidden() || view.alpha() <= 0.0 {
+                return false;
+            }
+            if view.clipsToBounds() || view.layer().masksToBounds() {
+                let clip = view.convertRect_toView(view.bounds(), Some(&window));
+                let Some(intersection) = visible_intersection(visible, clip) else {
+                    return false;
+                };
+                visible = intersection;
+            }
+            ancestor = view.superview();
+        }
+        true
+    }
+
+    pub(crate) fn update_shimmer(&self) {
+        let layers = self.ivars().shimmer_layer.borrow();
+        let Some((highlight, mask)) = layers.as_ref() else {
+            return;
+        };
+        let active = {
+            self.ivars().shimmer.get()
+                && self.shimmer_visible()
+                && !objc2_ui_kit::UIAccessibilityIsReduceMotionEnabled()
+                && !objc2_ui_kit::UIAccessibilityDarkerSystemColorsEnabled()
+                && !NSProcessInfo::processInfo().isLowPowerModeEnabled()
+                && objc2_ui_kit::UIApplication::sharedApplication(self.mtm()).applicationState()
+                    == objc2_ui_kit::UIApplicationState::Active
+        };
+        highlight.setHidden(!active);
+        if !active {
+            // SAFETY: only querying whether our own animation exists.
+            if unsafe { mask.animationForKey(ns_string!("shimmer")) }.is_some() {
+                shimmer_debug(false, self);
+            }
+            mask.removeAnimationForKey(ns_string!("shimmer"));
+        // SAFETY: the animation is only queried for its presence.
+        } else if unsafe { mask.animationForKey(ns_string!("shimmer")) }.is_none() {
+            let animation = CABasicAnimation::animationWithKeyPath(Some(ns_string!("position.x")));
+            let width = self.bounds().size.width;
+            // SAFETY: position.x takes NSNumber values.
+            unsafe {
+                animation.setFromValue(Some(&NSNumber::new_f64(-width / 6.0)));
+                animation.setToValue(Some(&NSNumber::new_f64(width * 7.0 / 6.0)));
+            }
+            animation.setDuration(nsh_core::shimmer::PERIOD.as_secs_f64());
+            animation.setRepeatCount(f32::INFINITY);
+            animation.setTimingFunction(Some(&CAMediaTimingFunction::functionWithName(
+                // SAFETY: immutable Core Animation constant.
+                unsafe { objc2_quartz_core::kCAMediaTimingFunctionLinear },
+            )));
+            mask.addAnimation_forKey(&animation, Some(ns_string!("shimmer")));
+            shimmer_debug(true, self);
+        }
+    }
+
+    fn draw_shimmer(&self, text: &CoreTextLayout, content: Bounds<Points>) {
+        if !self.ivars().shimmer.get() {
+            if let Some((layer, _)) = self.ivars().shimmer_layer.borrow_mut().take() {
+                layer.removeFromSuperlayer();
+            }
+            return;
+        }
+        let bounds = self.bounds();
+        if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
+            return;
+        }
+        let renderer = objc2_ui_kit::UIGraphicsImageRenderer::initWithSize(
+            objc2_ui_kit::UIGraphicsImageRenderer::alloc(),
+            bounds.size,
+        );
+        let draw = block2::RcBlock::new(
+            |_: std::ptr::NonNull<objc2_ui_kit::UIGraphicsImageRendererContext>| {
+                // SAFETY: imageWithActions installs the current UIKit context;
+                // CoreText lines and their runs remain alive throughout the draw.
+                unsafe {
+                    let Some(cx) = UIGraphicsGetCurrentContext() else {
+                        return;
+                    };
+                    let c = Some(&*cx);
+                    CGContext::set_text_matrix(
+                        c,
+                        CGAffineTransform {
+                            a: 1.0,
+                            b: 0.0,
+                            c: 0.0,
+                            d: 1.0,
+                            tx: 0.0,
+                            ty: 0.0,
+                        },
+                    );
+                    CGContext::translate_ctm(
+                        c,
+                        content.origin.x.0 as CGFloat,
+                        (content.origin.y.0 + content.size.height.0) as CGFloat,
+                    );
+                    CGContext::scale_ctm(c, 1.0, -1.0);
+                    CGContext::begin_transparency_layer(c, None);
+                    for line in &text.lines {
+                        CGContext::set_text_position(c, line.origin.x, line.origin.y);
+                        line.line.draw(&cx);
+                        if text.strikethrough {
+                            draw_decorations(&cx, line);
+                        }
+                    }
+                    CGContext::set_blend_mode(c, objc2_core_graphics::CGBlendMode::SourceIn);
+                    CGContext::set_fill_color_with_color(
+                        c,
+                        crate::decor::cg_color(self.ivars().shimmer_color.get()).as_deref(),
+                    );
+                    CGContext::fill_rect(c, CGContext::clip_bounding_box(c));
+                    CGContext::end_transparency_layer(c);
+                }
+            },
+        );
+        // SAFETY: the drawing block is synchronous; contents accepts CGImage.
+        unsafe {
+            let image: Retained<objc2_ui_kit::UIImage> =
+                msg_send![&*renderer, imageWithActions: &*draw];
+            if let Some(image) = image.CGImage() {
+                objc2_quartz_core::CATransaction::begin();
+                objc2_quartz_core::CATransaction::setDisableActions(true);
+                let mut layers = self.ivars().shimmer_layer.borrow_mut();
+                let (highlight, mask) = layers.get_or_insert_with(|| {
+                    let highlight = CALayer::new();
+                    let mask = CAGradientLayer::new();
+                    let colors = [
+                        UIColor::clearColor().CGColor(),
+                        UIColor::whiteColor().CGColor(),
+                        UIColor::clearColor().CGColor(),
+                    ];
+                    let colors: Vec<Retained<AnyObject>> = colors
+                        .into_iter()
+                        .map(|c| Retained::cast_unchecked(c))
+                        .collect();
+                    mask.setColors(Some(&NSArray::from_retained_slice(&colors)));
+                    mask.setStartPoint(CGPoint::new(0.0, 0.5));
+                    mask.setEndPoint(CGPoint::new(1.0, 0.5));
+                    highlight.setMask(Some(&mask));
+                    self.layer().addSublayer(&highlight);
+                    (highlight, mask)
+                });
+                highlight.setFrame(bounds);
+                highlight.setContentsScale(self.contentScaleFactor());
+                highlight.setContents(Some(&*(&*image as *const _ as *const AnyObject)));
+                let frame = CGRect::new(
+                    CGPoint::new(-bounds.size.width / 3.0, 0.0),
+                    CGSize::new(bounds.size.width / 3.0, bounds.size.height),
+                );
+                if mask.frame() != frame {
+                    mask.removeAnimationForKey(ns_string!("shimmer"));
+                    mask.setFrame(frame);
+                }
+                objc2_quartz_core::CATransaction::commit();
+            }
+        }
+        self.update_shimmer();
+    }
+
     /// Draws the whole text in `color` (an animated `color`), or in its
     /// own colors.
     pub(crate) fn set_color(&self, color: Option<nsh_core::Color>) {
@@ -713,5 +1041,48 @@ impl TextView {
     fn hidden_from_accessibility(&self) -> bool {
         // SAFETY: a plain getter.
         unsafe { msg_send![self, accessibilityElementsHidden] }
+    }
+}
+
+#[cfg(test)]
+mod shimmer_visibility_tests {
+    use super::*;
+
+    fn rect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) -> CGRect {
+        CGRect::new(CGPoint::new(x, y), CGSize::new(width, height))
+    }
+
+    #[test]
+    fn clips_in_window_coordinates_across_ancestors() {
+        let text = rect(10.0, 80.0, 100.0, 40.0);
+        let window = rect(0.0, 0.0, 400.0, 800.0);
+        let scroll = rect(0.0, 100.0, 200.0, 160.0);
+        let visible = visible_intersection(text, window).unwrap();
+        assert_eq!(
+            visible_intersection(visible, scroll),
+            Some(rect(10.0, 100.0, 100.0, 20.0))
+        );
+        let parent = rect(0.0, 130.0, 200.0, 100.0);
+        assert!(
+            visible_intersection(visible_intersection(visible, scroll).unwrap(), parent).is_none()
+        );
+    }
+
+    #[test]
+    fn fully_scrolled_out_and_empty_bounds_are_invisible() {
+        let viewport = rect(0.0, 0.0, 200.0, 160.0);
+        for text in [
+            rect(10.0, 160.0, 100.0, 40.0),
+            rect(10.0, -40.0, 100.0, 40.0),
+            rect(200.0, 10.0, 100.0, 40.0),
+            rect(10.0, 10.0, 0.0, 40.0),
+            rect(10.0, 10.0, 100.0, 0.0),
+        ] {
+            assert!(visible_intersection(text, viewport).is_none());
+        }
+        assert_eq!(
+            visible_intersection(rect(10.0, 20.0, 100.0, 40.0), viewport),
+            Some(rect(10.0, 20.0, 100.0, 40.0))
+        );
     }
 }
